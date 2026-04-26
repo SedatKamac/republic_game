@@ -254,7 +254,12 @@ class MockSocket implements ConsensusSocket {
   private startRound(room: MockRoom) {
     room.currentRound = { no: (room.currentRound?.no || 0) + 1, presidentId: room.players[room.presidentRotationIndex].id, team: [], missionResult: null };
     room.secretActions = {}; room.teamVotes = {};
-    this.transition(room, "DISCUSSION", room.settings.discussionSeconds * 1000, () => this.autoPickTeamIfNeeded(room));
+    this.transition(room, "DISCUSSION", room.settings.discussionSeconds * 1000, () => this.beginTeamSelection(room));
+  }
+
+  private beginTeamSelection(room: MockRoom) {
+    if (!room || room.phase === "TEAM_SELECTION") return;
+    this.transition(room, "TEAM_SELECTION", 60000, () => this.autoPickTeamIfNeeded(room));
   }
 
   private autoPickTeamIfNeeded(room: MockRoom) {
@@ -266,7 +271,9 @@ class MockSocket implements ConsensusSocket {
 
   private handleTeamSubmit(payload: { playerIds: string[] }) {
     const room = this.room;
-    if (!room || room.phase !== "TEAM_SELECTION") return;
+    if (!room || (room.phase !== "TEAM_SELECTION" && room.phase !== "DISCUSSION")) return;
+    if (room.currentRound?.presidentId !== this.playerId) return;
+    
     room.currentRound!.team = payload.playerIds;
     this.beginTeamVoting(room);
   }

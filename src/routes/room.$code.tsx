@@ -19,6 +19,7 @@ import { SpyHuntPhase } from "@/components/phases/SpyHuntPhase";
 import { GameEndPhase } from "@/components/phases/GameEndPhase";
 import { PhaseHeader } from "@/components/room/PhaseHeader";
 import { MissionTracker } from "@/components/room/MissionTracker";
+import { LastVoteResults } from "@/components/room/LastVoteResults";
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import type { GameEndPayload } from "@/lib/gameTypes";
@@ -140,6 +141,8 @@ function RoomPage() {
           />
         )}
 
+        <LastVoteResults room={room} />
+
         <AnimatePresence mode="wait">
           <motion.div
             key={room.phase}
@@ -173,6 +176,7 @@ function RoomPage() {
               <TeamSelectionPhase
                 room={room}
                 meId={playerId}
+                myRole={myRole}
                 onSubmit={(ids) => socket.emit("team:submit", { playerIds: ids })}
               />
             )}
@@ -180,6 +184,7 @@ function RoomPage() {
               <TeamVotingPhase
                 room={room}
                 meId={playerId}
+                myRole={myRole}
                 onSubmit={(vote) => socket.emit("team:vote", { vote })}
               />
             )}
@@ -205,6 +210,7 @@ function RoomPage() {
               <SpyHuntPhase
                 room={room}
                 meId={playerId}
+                myRole={myRole}
                 onSubmit={(targetId) => socket.emit("game:spyHunt", { targetPlayerId: targetId })}
               />
             )}

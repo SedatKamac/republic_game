@@ -2,15 +2,17 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Check, X, ShieldAlert, ShieldCheck } from "lucide-react";
-import type { RoomState, TeamVote } from "@/lib/gameTypes";
+import { cn } from "@/lib/utils";
+import type { RoomState, TeamVote, MyRolePayload } from "@/lib/gameTypes";
 
 interface TeamVotingPhaseProps {
   room: RoomState;
   meId: string;
+  myRole: MyRolePayload | null;
   onSubmit: (vote: TeamVote) => void;
 }
 
-export function TeamVotingPhase({ room, meId, onSubmit }: TeamVotingPhaseProps) {
+export function TeamVotingPhase({ room, meId, myRole, onSubmit }: TeamVotingPhaseProps) {
   const me = room.players.find((p) => p.id === meId);
   const president = room.players.find((p) => p.id === room.currentRound?.presidentId);
   const team = room.currentRound?.team || [];
@@ -36,14 +38,33 @@ export function TeamVotingPhase({ room, meId, onSubmit }: TeamVotingPhaseProps) 
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-        {teamPlayers.map((player) => (
-          <div key={player.id} className="panel-elevated p-4 flex flex-col items-center gap-2">
-            <div className="h-10 w-10 rounded-full bg-surface-3 flex items-center justify-center border border-border">
-              <ShieldCheck className="h-5 w-5 text-primary" />
+        {teamPlayers.map((player) => {
+          const knownRole = myRole?.knownRoles?.[player.id];
+          return (
+            <div key={player.id} className="panel-elevated p-4 flex flex-col items-center gap-2">
+              <div className="h-10 w-10 rounded-full bg-surface-3 flex items-center justify-center border border-border relative">
+                <ShieldCheck className="h-5 w-5 text-primary" />
+                {knownRole && (
+                  <div className={cn(
+                    "absolute -top-1 -right-1 w-3 h-3 rounded-full border border-background",
+                    knownRole === "TRAITOR" ? "bg-traitor" : "bg-loyalist"
+                  )} />
+                )}
+              </div>
+              <div className="text-center">
+                <span className="text-sm font-medium block">{player.name}</span>
+                {knownRole && (
+                   <span className={cn(
+                     "text-[9px] uppercase tracking-tighter font-mono",
+                     knownRole === "TRAITOR" ? "text-traitor" : "text-loyalist"
+                   )}>
+                     {knownRole}
+                   </span>
+                )}
+              </div>
             </div>
-            <span className="text-sm font-medium">{player.name}</span>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {!hasVoted ? (

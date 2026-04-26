@@ -2,14 +2,16 @@ import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { PlayerGrid } from "@/components/room/PlayerGrid";
 import { TEAM_SIZES } from "@/lib/gameTypes";
+import type { RoomState, MyRolePayload } from "@/lib/gameTypes";
 
 interface TeamSelectionPhaseProps {
   room: RoomState;
   meId: string;
+  myRole: MyRolePayload | null;
   onSubmit: (ids: string[]) => void;
 }
 
-export function TeamSelectionPhase({ room, meId, onSubmit }: TeamSelectionPhaseProps) {
+export function TeamSelectionPhase({ room, meId, myRole, onSubmit }: TeamSelectionPhaseProps) {
   const isPresident = room.currentRound?.presidentId === meId;
   const roundNo = room.currentRound?.no || 1;
   const teamSize = TEAM_SIZES[room.players.length]?.[roundNo - 1] ?? 3;
@@ -57,6 +59,7 @@ export function TeamSelectionPhase({ room, meId, onSubmit }: TeamSelectionPhaseP
         presidentId={room.currentRound?.presidentId}
         selectedIds={selected}
         meId={meId}
+        revealedRoles={myRole?.knownRoles}
         onPlayerClick={isPresident && !submitted ? (id) => selectableIds.has(id) && toggle(id) : undefined}
       />
 

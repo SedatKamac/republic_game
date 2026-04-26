@@ -32,6 +32,7 @@ export function DiscussionPhase({ room, meId, myRole }: DiscussionPhaseProps) {
           players={room.players}
           presidentId={room.currentRound?.presidentId}
           meId={meId}
+          revealedRoles={myRole?.knownRoles}
         />
         {myRole && (
           <div className="lg:sticky lg:top-6">

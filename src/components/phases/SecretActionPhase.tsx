@@ -47,6 +47,7 @@ export function SecretActionPhase({ room, meId, myRole, onSubmit }: SecretAction
         presidentId={room.currentRound?.presidentId}
         highlightIds={teamSet}
         meId={meId}
+        revealedRoles={myRole?.knownRoles}
       />
 
       {onTeam && !submitted && (

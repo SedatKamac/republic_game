@@ -1,20 +1,20 @@
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { ShieldAlert, Search, Skull } from "lucide-react";
-import type { RoomState, PublicPlayer } from "@/lib/gameTypes";
+import type { RoomState, PublicPlayer, MyRolePayload } from "@/lib/gameTypes";
 import { PlayerGrid } from "@/components/room/PlayerGrid";
 import { useState } from "react";
 
 interface SpyHuntPhaseProps {
   room: RoomState;
   meId: string;
+  myRole: MyRolePayload | null;
   onSubmit: (targetId: string) => void;
 }
 
-export function SpyHuntPhase({ room, meId, onSubmit }: SpyHuntPhaseProps) {
+export function SpyHuntPhase({ room, meId, myRole, onSubmit }: SpyHuntPhaseProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const isTraitor = room.players.find(p => p.id === meId)?.id === meId; // Simplification
-  // In real logic, we check faction.
+  const isTraitor = myRole?.faction === "TRAITOR";
   
   const traitors = room.players.filter(p => !room.players.find(pp => pp.id === p.id)); // Need to know who is traitor?
   // Actually, only traitors should see the action buttons.
@@ -36,19 +36,22 @@ export function SpyHuntPhase({ room, meId, onSubmit }: SpyHuntPhaseProps) {
         players={room.players}
         meId={meId}
         selectedIds={selectedId ? new Set([selectedId]) : undefined}
-        onPlayerClick={(id) => setSelectedId(id)}
+        onPlayerClick={isTraitor ? (id) => setSelectedId(id) : undefined}
+        revealedRoles={myRole?.knownRoles}
       />
 
-      <div className="flex justify-center pt-4">
-        <Button
-          onClick={() => selectedId && onSubmit(selectedId)}
-          disabled={!selectedId}
-          size="lg"
-          className="h-16 px-12 text-xl font-display gap-3 bg-traitor hover:bg-traitor/90 text-white"
-        >
-          <Skull className="h-6 w-6" /> Execute Spy Hunt
-        </Button>
-      </div>
+      {isTraitor && (
+        <div className="flex justify-center pt-4">
+          <Button
+            onClick={() => selectedId && onSubmit(selectedId)}
+            disabled={!selectedId}
+            size="lg"
+            className="h-16 px-12 text-xl font-display gap-3 bg-traitor hover:bg-traitor/90 text-white"
+          >
+            <Skull className="h-6 w-6" /> Execute Spy Hunt
+          </Button>
+        </div>
+      )}
       
       <p className="text-center text-[10px] text-muted-foreground uppercase tracking-widest">
         Traitors must agree on a single target.
