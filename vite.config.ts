@@ -1,6 +1,12 @@
-import { defineConfig } from "vite";
-import { defineConfig as defineLovableConfig } from "@lovable.dev/vite-tanstack-config";
+import { defineConfig } from 'vite'
+import { tanstackStart } from '@tanstack/react-start/plugin/vite'
+import viteReact from '@vitejs/plugin-react'
+import tsconfigPaths from 'vite-tsconfig-paths'
 
-export default defineLovableConfig({
-  cloudflare: false
-});
+export default defineConfig({
+  plugins: [
+    tanstackStart(),
+    viteReact(),
+    tsconfigPaths(),
+  ],
+})
