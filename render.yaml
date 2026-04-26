@@ -2,7 +2,7 @@ services:
   - type: web
     name: republic-game
     runtime: node
-    buildCommand: bun install && bun run build && echo "--- BUILD COMPLETE ---" && echo "Checking .output:" && ls -R .output || echo ".output not found" && echo "Checking dist:" && ls -R dist || echo "dist not found"
+    buildCommand: bun install && bun run build
     startCommand: bun run start
     envVars:
       - key: BUN_VERSION
