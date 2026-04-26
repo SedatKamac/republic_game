@@ -127,10 +127,11 @@ function Landing() {
             transition={{ duration: 0.6, delay: 0.15 }}
             className="panel-elevated p-6 sm:p-8"
           >
-            <div className="space-y-2 mb-6">
-              <Label htmlFor="name" className="text-xs font-mono uppercase tracking-widest">
-                Display name
-              </Label>
+            <div className="space-y-4 mb-8">
+              <div className="text-center sm:text-left">
+                <h3 className="text-lg font-display font-bold">Identity</h3>
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Choose how others see you</p>
+              </div>
               <Input
                 id="name"
                 value={name}
@@ -193,15 +194,14 @@ function Landing() {
             How a game flows
           </div>
           <div className="grid sm:grid-cols-3 gap-6">
-            {[
-              { n: "01", t: "Discuss", d: "Open chat. Read tells, plant doubt, build alliances." },
-              { n: "02", t: "Mission", d: "The President picks a team. Each member secretly votes Support or Sabotage." },
-              { n: "03", t: "Vote out", d: "Anonymously eliminate one player. Repeat until a faction wins." },
+              { n: "01", t: "Discuss", d: "Talk it out. Read tells, plant doubt, and build alliances in five intense rounds." },
+              { n: "02", t: "Mission", d: "The President picks a team. Members secretly Support or Sabotage. Deduce roles from the results." },
+              { n: "03", t: "Spy Hunt", d: "Loyalists win by success, but Traitors get one final chance to identify the Spy and steal the win." },
             ].map((s) => (
-              <div key={s.n} className="panel p-5">
-                <div className="code-chip text-primary text-sm">{s.n}</div>
-                <h3 className="font-display text-xl mt-2">{s.t}</h3>
-                <p className="text-sm text-muted-foreground mt-1">{s.d}</p>
+              <div key={s.n} className="panel p-6 border-l-2 border-l-primary/40 bg-primary/5">
+                <div className="text-primary font-mono text-sm font-bold tracking-tighter">{s.n}</div>
+                <h3 className="font-display text-xl mt-2 font-bold">{s.t}</h3>
+                <p className="text-sm text-muted-foreground mt-1 leading-relaxed">{s.d}</p>
               </div>
             ))}
           </div>

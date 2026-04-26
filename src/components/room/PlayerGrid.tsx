@@ -33,25 +33,22 @@ export function PlayerGrid({
         const isHighlight = highlightIds?.has(p.id);
         const isMe = p.id === meId;
         const role = revealedRoles?.[p.id];
-        const dead = !p.isAlive;
-
         return (
           <motion.button
             key={p.id}
             type="button"
-            disabled={!onPlayerClick || dead}
+            disabled={!onPlayerClick}
             onClick={() => onPlayerClick?.(p.id)}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.04 }}
-            whileHover={onPlayerClick && !dead ? { y: -2 } : undefined}
+            whileHover={onPlayerClick ? { y: -2 } : undefined}
             className={cn(
               "relative panel p-3 text-left transition-all",
               "flex flex-col gap-2 min-h-[88px]",
-              onPlayerClick && !dead && "hover:border-primary/60 cursor-pointer",
+              onPlayerClick && "hover:border-primary/60 cursor-pointer",
               isSelected && "ring-2 ring-primary border-primary bg-surface-2",
               isHighlight && "ring-2 ring-loyalist border-loyalist",
-              dead && "opacity-40 grayscale",
               role === "TRAITOR" && "border-traitor/60 bg-traitor/5",
               role === "LOYALIST" && "border-loyalist/60 bg-loyalist/5",
               role === "PRESIDENT" && "border-president/60 bg-president/10",
@@ -85,24 +82,29 @@ export function PlayerGrid({
               )}
             </div>
 
+            <div className="flex gap-1 flex-wrap mt-auto">
+              {p.missionHistory?.map((h, idx) => (
+                <div
+                  key={idx}
+                  className={cn(
+                    "h-2 w-2 rounded-full",
+                    h.result === "SUCCESS" ? "bg-emerald-500" : "bg-rose-500"
+                  )}
+                  title={`Round ${h.roundNo}: ${h.result}`}
+                />
+              ))}
+            </div>
+
             {role && (
               <div
                 className={cn(
                   "text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded self-start",
                   role === "TRAITOR" && "bg-traitor/20 text-traitor",
                   role === "LOYALIST" && "bg-loyalist/20 text-loyalist",
-                  role === "PRESIDENT" && "bg-president/20 text-president",
+                  role === "SPY" && "bg-primary/20 text-primary",
                 )}
               >
                 {role}
-              </div>
-            )}
-
-            {dead && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="text-[10px] font-mono uppercase tracking-widest text-destructive bg-background/80 px-2 py-1 rounded">
-                  Eliminated
-                </div>
               </div>
             )}
           </motion.button>

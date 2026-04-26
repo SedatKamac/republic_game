@@ -100,8 +100,8 @@ function makeBots(count: number, hostId: string): PublicPlayer[] {
     id: `bot_${i}_${Math.random().toString(36).slice(2, 8)}`,
     name,
     seatIndex: i + 1, // host is seat 0
-    isAlive: true,
     isConnected: true,
+    missionHistory: [],
   }));
 }
 
@@ -176,6 +176,7 @@ class MockSocket implements ConsensusSocket {
       case "vote:submit": return this.handleVoteSubmit(payload);
       case "game:reset": return this.handleReset();
       case "game:skipPhase": return this.handleSkipPhase();
+      case "game:spyHunt": return this.handleSpyHuntSubmit(payload);
     }
   }
 
@@ -189,6 +190,22 @@ class MockSocket implements ConsensusSocket {
       room.onTimerEnd = null;
       cb();
     }
+  }
+
+  private handleSpyHuntSubmit(payload: { targetPlayerId: string }) {
+    const room = this.room;
+    if (!room || room.phase !== "SPY_HUNT") return;
+    const isTraitor = room.factionByPlayerId[this.playerId] === "TRAITOR";
+    if (!isTraitor) return;
+
+    const targetRole = room.rolesByPlayerId[payload.targetPlayerId];
+    const spyFound = targetRole === "SPY";
+
+    const winner: Faction = spyFound ? "TRAITOR" : "LOYALIST";
+    const gameEndPayload: GameEndPayload = { winner, roles: { ...room.rolesByPlayerId } };
+    
+    this.transition(room, "GAME_END", 60_000, () => {});
+    this.fire("game:ended", gameEndPayload);
   }
 
   private get room(): MockRoom | null {
@@ -213,8 +230,8 @@ class MockSocket implements ConsensusSocket {
       id: this.playerId,
       name: payload.displayName || "Host",
       seatIndex: 0,
-      isAlive: true,
       isConnected: true,
+      missionHistory: [],
     };
     const room: MockRoom = {
       code,
@@ -271,8 +288,8 @@ class MockSocket implements ConsensusSocket {
         id: this.playerId,
         name: payload.displayName || "Player",
         seatIndex: room.players.length,
-        isAlive: true,
         isConnected: true,
+        missionHistory: [],
       });
     }
     this.roomCode = code;
@@ -330,28 +347,40 @@ class MockSocket implements ConsensusSocket {
   private assignRoles(room: MockRoom) {
     const dist = ROLE_DISTRIBUTION[room.players.length];
     const ids = shuffle(room.players.map((p) => p.id));
+    
     const traitorIds = new Set(ids.slice(0, dist.traitors));
-    // President is rotational, picked from loyalists each round; for ROLE label we pick first non-traitor
-    const presidentId = ids.find((id) => !traitorIds.has(id))!;
+    const spyId = ids.slice(dist.traitors, dist.traitors + dist.spies)[0];
+    
+    const presidentId = ids.find((id) => !traitorIds.has(id) && id !== spyId) || ids[0];
     room.presidentRotationIndex = room.players.findIndex((p) => p.id === presidentId);
 
     room.players.forEach((p) => {
       if (traitorIds.has(p.id)) {
         room.rolesByPlayerId[p.id] = "TRAITOR";
         room.factionByPlayerId[p.id] = "TRAITOR";
+      } else if (p.id === spyId) {
+        room.rolesByPlayerId[p.id] = "SPY";
+        room.factionByPlayerId[p.id] = "LOYALIST";
       } else {
-        room.rolesByPlayerId[p.id] = p.id === presidentId ? "PRESIDENT" : "LOYALIST";
+        room.rolesByPlayerId[p.id] = "LOYALIST";
         room.factionByPlayerId[p.id] = "LOYALIST";
       }
     });
 
-    // Send PRIVATE role only to this socket's player
-    const myRole = room.rolesByPlayerId[this.playerId];
-    const myFaction = room.factionByPlayerId[this.playerId];
-    if (myRole) {
+    // Send roles to each player
+    room.players.forEach(p => {
+      const myRole = room.rolesByPlayerId[p.id];
+      const myFaction = room.factionByPlayerId[p.id];
       const payload: MyRolePayload = { role: myRole, faction: myFaction };
+      
+      // Spy knows everyone's roles
+      if (myRole === "SPY") {
+        payload.knownRoles = { ...room.rolesByPlayerId };
+      }
+      
+      // In a real server this is a private emit; here we fire it and trust the client filter
       this.fire("you:role", payload);
-    }
+    });
   }
 
   private startRound(room: MockRoom) {
@@ -388,9 +417,8 @@ class MockSocket implements ConsensusSocket {
   private autoPickTeamIfNeeded(room: MockRoom) {
     if (!room.currentRound) return;
     if (room.currentRound.team.length === 0) {
-      // President didn't pick — pick random alive players including president
-      const teamSize = TEAM_SIZE_BY_PLAYERS[room.players.length] ?? 3;
-      const aliveIds = room.players.filter((p) => p.isAlive).map((p) => p.id);
+      const teamSize = TEAM_SIZES[room.players.length][room.currentRound.no - 1];
+      const aliveIds = room.players.map((p) => p.id);
       const picked = shuffle(aliveIds).slice(0, teamSize);
       if (!picked.includes(room.currentRound.presidentId)) {
         picked[0] = room.currentRound.presidentId;
@@ -405,10 +433,8 @@ class MockSocket implements ConsensusSocket {
     if (!room || !room.currentRound) return;
     if (room.phase !== "TEAM_SELECTION") return;
     if (room.currentRound.presidentId !== this.playerId) return;
-    const teamSize = TEAM_SIZE_BY_PLAYERS[room.players.length] ?? 3;
+    const teamSize = TEAM_SIZES[room.players.length][room.currentRound.no - 1];
     if (payload.playerIds.length !== teamSize) return;
-    const allAlive = payload.playerIds.every((id) => room.players.find((p) => p.id === id)?.isAlive);
-    if (!allAlive) return;
     room.currentRound.team = payload.playerIds;
     if (room.timer) clearTimeout(room.timer);
     this.beginTeamVoting(room);
@@ -559,14 +585,22 @@ class MockSocket implements ConsensusSocket {
     if (result === "SUCCESS") room.loyalistWins++;
     else room.traitorWins++;
 
+    // Record history for all participants
+    for (const pid of room.currentRound.team) {
+      const p = room.players.find((pp) => pp.id === pid);
+      if (p) {
+        p.missionHistory.push({ roundNo: room.currentRound.no, result });
+      }
+    }
+
     this.fire("mission:result", { result, supportCount: support, sabotageCount: sabotage });
 
     this.transition(room, "RESULT_REVEAL", 5000, () => {
       // Trust Reveal phase only after a SABOTAGE (Traitor win), otherwise skip
       if (result === "SABOTAGE") {
-        this.transition(room, "TRUST_REVEAL", 15_000, () => this.beginVoting(room));
+        this.transition(room, "TRUST_REVEAL", 15_000, () => this.checkWin(room));
       } else {
-        this.beginVoting(room);
+        this.checkWin(room);
       }
     });
   }
@@ -577,12 +611,10 @@ class MockSocket implements ConsensusSocket {
     if (room.phase !== "TRUST_REVEAL") return;
     if (room.factionByPlayerId[this.playerId] !== "LOYALIST") return;
     const target = room.players.find((p) => p.id === payload.targetPlayerId);
-    if (!target || !target.isAlive) return;
+    if (!target) return;
     const key = `${this.playerId}->${target.id}`;
     if (room.trustReveals.has(key)) return;
     room.trustReveals.add(key);
-    // In a real server, this is a private emit to target ONLY.
-    // In mock, only fire if target is the local player.
     if (target.id === this.playerId) {
       const me = room.players.find((p) => p.id === this.playerId)!;
       const tp: TrustRevealPayload = {
@@ -594,86 +626,28 @@ class MockSocket implements ConsensusSocket {
     }
   }
 
-  private beginVoting(room: MockRoom) {
-    room.votes = {};
-    this.transition(room, "VOTING", 25_000, () => this.resolveVoting(room));
-    setTimeout(() => this.autoSubmitBotVotes(room), 2000 + Math.random() * 5000);
-  }
-
-  private autoSubmitBotVotes(room: MockRoom) {
-    if (room.phase !== "VOTING") return;
-    const aliveIds = room.players.filter((p) => p.isAlive).map((p) => p.id);
-    for (const pid of aliveIds) {
-      if (pid === this.playerId) continue;
-      if (room.votes[pid]) continue;
-      // Bots vote: traitors vote for loyalists, loyalists vote randomly among non-self
-      const candidates = aliveIds.filter((id) => id !== pid);
-      const isTraitor = room.factionByPlayerId[pid] === "TRAITOR";
-      const pool = isTraitor
-        ? candidates.filter((id) => room.factionByPlayerId[id] === "LOYALIST")
-        : candidates;
-      room.votes[pid] = rand(pool.length ? pool : candidates);
-    }
-    if (this.allAliveVoted(room)) {
-      if (room.timer) clearTimeout(room.timer);
-      this.resolveVoting(room);
-    }
-  }
-
-  private allAliveVoted(room: MockRoom) {
-    return room.players.filter((p) => p.isAlive).every((p) => room.votes[p.id]);
-  }
-
-  private handleVoteSubmit(payload: { targetPlayerId: string }) {
-    const room = this.room;
-    if (!room) return;
-    if (room.phase !== "VOTING") return;
-    const me = room.players.find((p) => p.id === this.playerId);
-    if (!me?.isAlive) return;
-    if (room.votes[this.playerId]) return;
-    const target = room.players.find((p) => p.id === payload.targetPlayerId);
-    if (!target?.isAlive) return;
-    room.votes[this.playerId] = target.id;
-    if (this.allAliveVoted(room)) {
-      if (room.timer) clearTimeout(room.timer);
-      this.resolveVoting(room);
-    }
-  }
-
-  private resolveVoting(room: MockRoom) {
-    const tallies: Record<string, number> = {};
-    for (const target of Object.values(room.votes)) {
-      tallies[target] = (tallies[target] ?? 0) + 1;
-    }
-    let max = 0;
-    let eliminated: string | null = null;
-    let tie = false;
-    for (const [id, count] of Object.entries(tallies)) {
-      if (count > max) { max = count; eliminated = id; tie = false; }
-      else if (count === max) { tie = true; }
-    }
-    if (tie) eliminated = null; // no elimination on tie
-    if (eliminated) {
-      const p = room.players.find((pp) => pp.id === eliminated);
-      if (p) p.isAlive = false;
-    }
-    room.lastVoteResult = { eliminatedPlayerId: eliminated, tallies };
-    this.fire("vote:result", room.lastVoteResult);
-
-    this.transition(room, "WIN_CHECK", 4000, () => this.checkWin(room));
-  }
-
   private checkWin(room: MockRoom) {
-    const aliveTraitors = room.players.filter(
-      (p) => p.isAlive && room.factionByPlayerId[p.id] === "TRAITOR",
-    ).length;
-
     let winner: Faction | null = null;
-    if (aliveTraitors === 0) winner = "LOYALIST";
-    else if (room.loyalistWins >= MISSIONS_TO_WIN) winner = "LOYALIST";
-    else if (room.traitorWins >= MISSIONS_TO_WIN) winner = "TRAITOR";
-    else if (room.missions.every((m) => m !== null)) {
+    
+    if (room.traitorWins >= MISSIONS_TO_WIN) {
+      winner = "TRAITOR";
+    } else if (room.loyalistWins >= MISSIONS_TO_WIN) {
+      this.transition(room, "SPY_HUNT", 60_000, () => {
+        const payload: GameEndPayload = { winner: "LOYALIST", roles: { ...room.rolesByPlayerId } };
+        this.transition(room, "GAME_END", 60_000, () => {});
+        this.fire("game:ended", payload);
+      });
+      return;
+    } else if (room.missions.every((m) => m !== null)) {
       winner = room.loyalistWins > room.traitorWins ? "LOYALIST" : "TRAITOR";
+      if (winner === "LOYALIST") {
+         this.transition(room, "SPY_HUNT", 60_000, () => {
+            const payload: GameEndPayload = { winner: "LOYALIST", roles: { ...room.rolesByPlayerId } };
+            this.transition(room, "GAME_END", 60_000, () => {});
+            this.fire("game:ended", payload);
+         });
+         return;
+      }
     }
 
     if (winner) {
@@ -683,11 +657,7 @@ class MockSocket implements ConsensusSocket {
       return;
     }
 
-    // Rotate president, next round
-    do {
-      room.presidentRotationIndex = (room.presidentRotationIndex + 1) % room.players.length;
-    } while (!room.players[room.presidentRotationIndex].isAlive);
-
+    room.presidentRotationIndex = (room.presidentRotationIndex + 1) % room.players.length;
     this.startRound(room);
   }
 

@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import type { MyRolePayload } from "@/lib/gameTypes";
-import { Shield, Skull, Crown } from "lucide-react";
+import { Shield, Skull, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface RoleCardProps {
@@ -26,12 +26,12 @@ const ROLE_DETAIL: Record<
     color: "text-traitor border-traitor/60 bg-traitor/10",
     glow: "shadow-glow-traitor",
   },
-  PRESIDENT: {
-    title: "President",
-    tagline: "Loyalist with authority. You pick the missions.",
-    Icon: Crown,
-    color: "text-president border-president/60 bg-president/10",
-    glow: "shadow-glow-amber",
+  SPY: {
+    title: "Spy",
+    tagline: "You know everyone's role. Guide the Loyalists, but stay hidden.",
+    Icon: Eye,
+    color: "text-primary border-primary/60 bg-primary/10",
+    glow: "shadow-glow-primary",
   },
 };
 
@@ -70,6 +70,28 @@ export function RoleCard({ role, compact }: RoleCardProps) {
       </div>
       <h2 className={cn("text-4xl sm:text-5xl font-display font-bold mb-3")}>{d.title}</h2>
       <p className="text-sm sm:text-base text-foreground/80 text-balance">{d.tagline}</p>
+      
+      {role.knownRoles && (
+        <div className="mt-6 pt-6 border-t border-border/50 text-left">
+          <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-3">
+            Secret Intelligence
+          </div>
+          <div className="space-y-2">
+            {Object.entries(role.knownRoles).map(([pid, r]) => (
+               <div key={pid} className="flex items-center justify-between gap-4 text-[11px]">
+                  <span className="truncate opacity-80">{pid}</span>
+                  <span className={cn(
+                    "font-mono uppercase tracking-tighter px-1.5 py-0.5 rounded",
+                    r === "TRAITOR" ? "bg-rose-500/20 text-rose-400" : "bg-emerald-500/20 text-emerald-400"
+                  )}>
+                    {r}
+                  </span>
+               </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="mt-6 pt-6 border-t border-border/50 text-xs text-muted-foreground">
         Faction: <span className="font-mono uppercase tracking-wider">{role.faction}</span>
       </div>

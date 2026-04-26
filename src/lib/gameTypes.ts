@@ -11,12 +11,12 @@ export type Phase =
   | "SECRET_ACTION"
   | "RESULT_REVEAL"
   | "TRUST_REVEAL"
-  | "VOTING"
+  | "SPY_HUNT"
   | "WIN_CHECK"
   | "GAME_END";
 
 export type Faction = "LOYALIST" | "TRAITOR";
-export type Role = "LOYALIST" | "TRAITOR" | "PRESIDENT";
+export type Role = "LOYALIST" | "TRAITOR" | "SPY";
 export type MissionResult = "SUCCESS" | "SABOTAGE";
 export type SecretAction = "SUPPORT" | "SABOTAGE";
 export type TeamVote = "APPROVE" | "REJECT" | "DOUBLE_APPROVE" | "DOUBLE_REJECT";
@@ -25,10 +25,10 @@ export interface PublicPlayer {
   id: string;
   name: string;
   seatIndex: number;
-  isAlive: boolean;
   isConnected: boolean;
   doubleApproveUsed?: boolean;
   doubleRejectUsed?: boolean;
+  missionHistory: { roundNo: number; result: MissionResult }[];
 }
 
 export interface RoomSettings {
@@ -50,7 +50,7 @@ export interface RoomState {
   settings: RoomSettings;
   players: PublicPlayer[];
   currentRound: CurrentRound | null;
-  missions: (MissionResult | null)[]; // length 5, best-of-5
+  missions: (MissionResult | null)[]; // length 5
   // Phase-specific public payloads
   lastTeamVote?: { tallies: Record<string, TeamVote>; approved: boolean } | null;
   lastMissionTally?: { supportCount: number; sabotageCount: number } | null;
@@ -60,26 +60,25 @@ export interface RoomState {
 export interface MyRolePayload {
   role: Role;
   faction: Faction;
+  knownRoles?: Record<string, Role>; // Sent only to Spy
 }
 
-export interface TrustRevealPayload {
-  fromPlayerId: string;
-  fromName: string;
-  role: Role;
-}
+// Role distribution table
+export const ROLE_DISTRIBUTION: Record<number, { traitors: number; spies: 1 }> = {
+  6: { traitors: 2, spies: 1 },
+  7: { traitors: 2, spies: 1 },
+  8: { traitors: 3, spies: 1 },
+  9: { traitors: 3, spies: 1 },
+  10: { traitors: 4, spies: 1 },
+};
 
-export interface GameEndPayload {
-  winner: Faction;
-  roles: Record<string, Role>;
-}
-
-// Role distribution table — server uses this; client mirrors for UI hints only
-export const ROLE_DISTRIBUTION: Record<number, { traitors: number; loyalists: number }> = {
-  6: { traitors: 1, loyalists: 5 },
-  7: { traitors: 2, loyalists: 5 },
-  8: { traitors: 2, loyalists: 6 },
-  9: { traitors: 3, loyalists: 6 },
-  10: { traitors: 3, loyalists: 7 },
+// Team sizes per round [R1, R2, R3, R4, R5]
+export const TEAM_SIZES: Record<number, number[]> = {
+  6: [2, 3, 3, 2, 2],
+  7: [3, 3, 4, 3, 2],
+  8: [3, 4, 4, 5, 3],
+  9: [3, 4, 5, 5, 4],
+  10: [3, 4, 5, 6, 5],
 };
 
 export const PHASE_LABEL: Record<Phase, string> = {
@@ -91,13 +90,9 @@ export const PHASE_LABEL: Record<Phase, string> = {
   SECRET_ACTION: "Secret Action",
   RESULT_REVEAL: "Mission Result",
   TRUST_REVEAL: "Trust Reveal",
-  VOTING: "Elimination Vote",
+  SPY_HUNT: "Spy Hunt (Revenge)",
   WIN_CHECK: "Checking Victory",
   GAME_END: "Game Over",
-};
-
-export const TEAM_SIZE_BY_PLAYERS: Record<number, number> = {
-  6: 2, 7: 3, 8: 3, 9: 3, 10: 3,
 };
 
 export const MISSIONS_TO_WIN = 3;

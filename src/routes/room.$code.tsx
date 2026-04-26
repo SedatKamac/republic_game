@@ -15,7 +15,7 @@ import { TeamVotingPhase } from "@/components/phases/TeamVotingPhase";
 import { SecretActionPhase } from "@/components/phases/SecretActionPhase";
 import { ResultRevealPhase } from "@/components/phases/ResultRevealPhase";
 import { TrustRevealPhase } from "@/components/phases/TrustRevealPhase";
-import { VotingPhase } from "@/components/phases/VotingPhase";
+import { SpyHuntPhase } from "@/components/phases/SpyHuntPhase";
 import { GameEndPhase } from "@/components/phases/GameEndPhase";
 import { PhaseHeader } from "@/components/room/PhaseHeader";
 import { MissionTracker } from "@/components/room/MissionTracker";
@@ -98,8 +98,8 @@ function RoomPage() {
         ? "Everyone votes to approve or reject the team."
         : room.phase === "SECRET_ACTION"
           ? "Team members are voting in secret."
-          : room.phase === "VOTING"
-            ? "Anonymous elimination vote."
+          : room.phase === "SPY_HUNT"
+            ? "Traitors are searching for the Spy!"
             : undefined;
 
   const leave = () => {
@@ -200,11 +200,11 @@ function RoomPage() {
                 onReveal={(targetId) => socket.emit("trust:reveal", { targetPlayerId: targetId })}
               />
             )}
-            {room.phase === "VOTING" && (
-              <VotingPhase
+            {room.phase === "SPY_HUNT" && (
+              <SpyHuntPhase
                 room={room}
                 meId={playerId}
-                onVote={(targetId) => socket.emit("vote:submit", { targetPlayerId: targetId })}
+                onSubmit={(targetId) => socket.emit("game:spyHunt", { targetPlayerId: targetId })}
               />
             )}
             {room.phase === "WIN_CHECK" && (
