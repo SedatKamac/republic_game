@@ -2,7 +2,7 @@ services:
   - type: web
     name: republic-game
     runtime: node
-    buildCommand: bun install && bun run build
+    buildCommand: rm -rf dist .vinxi && bun install && bun run build
     startCommand: node server.mjs
     envVars:
       - key: BUN_VERSION
