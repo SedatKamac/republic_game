@@ -221,7 +221,10 @@ class MockSocket implements ConsensusSocket {
   }
 
   private pushState() {
-    if (this.room) this.fire("room:state", publicRoomState(this.room));
+    if (this.room) {
+      const state = publicRoomState(this.room);
+      setTimeout(() => this.fire("room:state", state), 0);
+    }
   }
 
   private handleCreate(payload: { displayName: string; settings?: Partial<RoomSettings> }) {
@@ -341,7 +344,10 @@ class MockSocket implements ConsensusSocket {
       return;
     }
     this.assignRoles(room);
-    this.transition(room, "ROLE_ASSIGNMENT", 12000, () => this.startRound(room));
+    this.pushState();
+    setTimeout(() => {
+      this.transition(room, "ROLE_ASSIGNMENT", 12000, () => this.startRound(room));
+    }, 100);
   }
 
   private assignRoles(room: MockRoom) {
