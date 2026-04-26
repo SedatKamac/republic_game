@@ -341,7 +341,7 @@ class MockSocket implements ConsensusSocket {
       return;
     }
     this.assignRoles(room);
-    this.transition(room, "ROLE_ASSIGNMENT", 6000, () => this.startRound(room));
+    this.transition(room, "ROLE_ASSIGNMENT", 12000, () => this.startRound(room));
   }
 
   private assignRoles(room: MockRoom) {

@@ -135,6 +135,8 @@ function RoomPage() {
             remaining={remaining}
             roundNo={room.currentRound?.no ?? null}
             subtitle={phaseSubtitle}
+            isHost={room.hostId === playerId}
+            onSkip={() => socket.emit("game:skipPhase")}
           />
         )}
 
@@ -165,7 +167,6 @@ function RoomPage() {
                 room={room} 
                 meId={playerId} 
                 myRole={myRole} 
-                onSkip={() => socket.emit("game:skipPhase")}
               />
             )}
             {room.phase === "TEAM_SELECTION" && (
