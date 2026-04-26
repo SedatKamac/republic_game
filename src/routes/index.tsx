@@ -194,6 +194,7 @@ function Landing() {
             How a game flows
           </div>
           <div className="grid sm:grid-cols-3 gap-6">
+            {[
               { n: "01", t: "Discuss", d: "Talk it out. Read tells, plant doubt, and build alliances in five intense rounds." },
               { n: "02", t: "Mission", d: "The President picks a team. Members secretly Support or Sabotage. Deduce roles from the results." },
               { n: "03", t: "Spy Hunt", d: "Loyalists win by success, but Traitors get one final chance to identify the Spy and steal the win." },
