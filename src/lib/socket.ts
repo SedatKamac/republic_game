@@ -109,6 +109,7 @@ class MockSocket implements ConsensusSocket {
     return () => this.listeners.get(event)?.delete(fn);
   }
   private fire(event: string, payload?: any) {
+    // console.log(`[Socket] Fire ${event}`, payload);
     this.listeners.get(event)?.forEach(fn => fn(payload));
   }
   emit(event: string, payload?: any) {
@@ -174,7 +175,10 @@ class MockSocket implements ConsensusSocket {
   private handleJoin(payload: { code: string; displayName: string }) {
     const code = payload.code.toUpperCase().trim();
     const room = ROOMS.get(code);
-    if (!room) return;
+    if (!room) {
+      this.fire("room:error", { code: "NOT_FOUND", message: "Oda bulunamadı. Lütfen kodu kontrol edin." });
+      return;
+    }
 
     const existingPlayer = room.players.find(p => p.id === this.playerId);
     if (existingPlayer) {
@@ -184,7 +188,16 @@ class MockSocket implements ConsensusSocket {
       return;
     }
 
-    if (room.phase !== "LOBBY" || room.players.length >= 10) return;
+    if (room.phase !== "LOBBY") {
+      this.fire("room:error", { code: "IN_PROGRESS", message: "Oyun zaten başladı. Yeni oyuncu katılamaz." });
+      return;
+    }
+    
+    if (room.players.length >= 10) {
+      this.fire("room:error", { code: "FULL", message: "Oda dolu (Maksimum 10 oyuncu)." });
+      return;
+    }
+
     room.players.push({ id: this.playerId, name: payload.displayName || "Player", seatIndex: room.players.length, isConnected: true, missionHistory: [] });
     this.roomCode = code;
     this.pushState();

@@ -149,22 +149,27 @@ function Landing() {
 
               <TabsContent value="create" className="space-y-4 mt-5">
                 <p className="text-sm text-muted-foreground">
-                  You become the host. Share your room code with 5–9 friends, then start the game.
+                  Oda sahibi olursunuz. Oda kodunu 5-9 arkadaşınızla paylaşın ve oyunu başlatın.
                 </p>
                 <Button
                   onClick={create}
-                  disabled={!ready}
+                  disabled={!ready || !name.trim()}
                   size="lg"
                   className="w-full h-14 text-base font-display"
                 >
-                  Create new room <ArrowRight className="h-5 w-5 ml-2" />
+                  Yeni Oda Kur <ArrowRight className="h-5 w-5 ml-2" />
                 </Button>
+                {!name.trim() && (
+                  <p className="text-[10px] text-traitor text-center uppercase tracking-widest animate-pulse">
+                    Devam etmek için bir isim girmelisiniz
+                  </p>
+                )}
               </TabsContent>
 
               <TabsContent value="join" className="space-y-4 mt-5">
                 <div className="space-y-2">
                   <Label htmlFor="code" className="text-xs font-mono uppercase tracking-widest">
-                    Room code
+                    Oda Kodu
                   </Label>
                   <Input
                     id="code"
@@ -176,12 +181,17 @@ function Landing() {
                 </div>
                 <Button
                   onClick={join}
-                  disabled={!ready}
+                  disabled={!ready || !name.trim() || code.trim().length < 4}
                   size="lg"
                   className="w-full h-14 text-base font-display"
                 >
-                  Join room <ArrowRight className="h-5 w-5 ml-2" />
+                  Odaya Katıl <ArrowRight className="h-5 w-5 ml-2" />
                 </Button>
+                {(!name.trim() || code.trim().length < 4) && (
+                  <p className="text-[10px] text-traitor text-center uppercase tracking-widest animate-pulse">
+                    {!name.trim() ? "İsim girmelisiniz" : "Geçerli bir kod girmelisiniz"}
+                  </p>
+                )}
               </TabsContent>
             </Tabs>
           </motion.div>
