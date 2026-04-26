@@ -1,11 +1,4 @@
 // CONSENSUS — Socket abstraction.
-//
-// This file exposes a tiny event-emitter API that mirrors the Socket.io contract.
-// In dev/preview we use an in-memory MockSocket that simulates the full game loop
-// with bot players. To wire up your real server, set VITE_SOCKET_URL and replace
-// `createMockSocket` with a thin Socket.io client wrapper that emits the same
-// events documented in the contract.
-
 import type {
   CurrentRound,
   Faction,
@@ -18,9 +11,10 @@ import type {
   RoomSettings,
   RoomState,
   SecretAction,
+  TeamVote,
   TrustRevealPayload,
 } from "./gameTypes";
-import { ROLE_DISTRIBUTION, TEAM_SIZE_BY_PLAYERS, TOTAL_MISSIONS, MISSIONS_TO_WIN } from "./gameTypes";
+import { ROLE_DISTRIBUTION, TEAM_SIZES, TOTAL_MISSIONS, MISSIONS_TO_WIN } from "./gameTypes";
 
 type Listener = (payload: any) => void;
 
@@ -41,19 +35,16 @@ interface MockRoom {
   phaseEndsAt: number | null;
   settings: RoomSettings;
   players: PublicPlayer[];
-  // Hidden server state — never sent to clients except via private channel
   rolesByPlayerId: Record<string, Role>;
   factionByPlayerId: Record<string, Faction>;
   currentRound: CurrentRound | null;
   missions: (MissionResult | null)[];
-  secretActions: Record<string, SecretAction>; // playerId -> action this round
-  votes: Record<string, string>; // voterId -> targetId
-  teamVotes: Record<string, TeamVote>; // voterId -> vote
-  trustReveals: Set<string>; // "fromId->toId" dedupe per round
+  secretActions: Record<string, SecretAction>;
+  teamVotes: Record<string, TeamVote>;
+  trustReveals: Set<string>;
   presidentRotationIndex: number;
   lastTeamVote: { tallies: Record<string, TeamVote>; approved: boolean } | null;
   lastMissionTally: { supportCount: number; sabotageCount: number } | null;
-  lastVoteResult: { eliminatedPlayerId: string | null; tallies: Record<string, number> } | null;
   loyalistWins: number;
   traitorWins: number;
   timer: ReturnType<typeof setTimeout> | null;
@@ -61,27 +52,12 @@ interface MockRoom {
 }
 
 const ROOMS = new Map<string, MockRoom>();
-
-const BOT_NAMES = [
-  "Vega", "Kai", "Nova", "Zara", "Orion", "Lyra",
-  "Echo", "Mira", "Jax", "Iris", "Knox", "Pax",
-];
-
-function rand<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
+const BOT_NAMES = ["Vega", "Kai", "Nova", "Zara", "Orion", "Lyra", "Echo", "Mira", "Jax", "Iris"];
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
-  // crypto-grade if available
-  const buf = new Uint32Array(a.length);
-  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
-    crypto.getRandomValues(buf);
-  } else {
-    for (let i = 0; i < buf.length; i++) buf[i] = Math.floor(Math.random() * 0xffffffff);
-  }
   for (let i = a.length - 1; i > 0; i--) {
-    const j = buf[i] % (i + 1);
+    const j = Math.floor(Math.random() * (i + 1));
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
@@ -94,17 +70,6 @@ function generateRoomCode(): string {
   return ROOMS.has(code) ? generateRoomCode() : code;
 }
 
-function makeBots(count: number, hostId: string): PublicPlayer[] {
-  const names = shuffle(BOT_NAMES).slice(0, count);
-  return names.map((name, i) => ({
-    id: `bot_${i}_${Math.random().toString(36).slice(2, 8)}`,
-    name,
-    seatIndex: i + 1, // host is seat 0
-    isConnected: true,
-    missionHistory: [],
-  }));
-}
-
 function publicRoomState(room: MockRoom): RoomState {
   return {
     code: room.code,
@@ -112,12 +77,11 @@ function publicRoomState(room: MockRoom): RoomState {
     phase: room.phase,
     phaseEndsAt: room.phaseEndsAt,
     settings: room.settings,
-    players: room.players.map((p) => ({ ...p })),
+    players: room.players.map(p => ({ ...p })),
     currentRound: room.currentRound ? { ...room.currentRound, team: [...room.currentRound.team] } : null,
     missions: [...room.missions],
     lastTeamVote: room.lastTeamVote,
     lastMissionTally: room.lastMissionTally,
-    lastVoteResult: room.lastVoteResult,
   };
 }
 
@@ -127,40 +91,29 @@ class MockSocket implements ConsensusSocket {
   private displayName = "";
   private roomCode: string | null = null;
   private connected = false;
+  private phaseLock: string | null = null;
 
   connect(playerId: string, displayName: string) {
     this.playerId = playerId;
     this.displayName = displayName;
     this.connected = true;
   }
-
-  disconnect() {
-    this.connected = false;
-    this.listeners.clear();
-  }
-
-  isConnected() {
-    return this.connected;
-  }
-
+  disconnect() { this.connected = false; this.listeners.clear(); }
+  isConnected() { return this.connected; }
   on(event: string, fn: Listener) {
     if (!this.listeners.has(event)) this.listeners.set(event, new Set());
     this.listeners.get(event)!.add(fn);
     return () => this.listeners.get(event)?.delete(fn);
   }
-
   private fire(event: string, payload?: any) {
-    this.listeners.get(event)?.forEach((fn) => fn(payload));
+    this.listeners.get(event)?.forEach(fn => fn(payload));
   }
-
   emit(event: string, payload?: any) {
-    // Simulate network latency
     setTimeout(() => this.handle(event, payload), 30);
   }
 
-  // ---------- Server-side handlers ----------
-
   private handle(event: string, payload: any) {
+    const room = this.room;
     switch (event) {
       case "room:create": return this.handleCreate(payload);
       case "room:join": return this.handleJoin(payload);
@@ -172,52 +125,14 @@ class MockSocket implements ConsensusSocket {
       case "team:submit": return this.handleTeamSubmit(payload);
       case "team:vote": return this.handleTeamVoteSubmit(payload);
       case "action:submit": return this.handleActionSubmit(payload);
-      case "trust:reveal": return this.handleTrustReveal(payload);
-      case "vote:submit": return this.handleVoteSubmit(payload);
       case "game:reset": return this.handleReset();
       case "game:skipPhase": return this.handleSkipPhase();
       case "game:spyHunt": return this.handleSpyHuntSubmit(payload);
     }
   }
 
-  private handleSkipPhase() {
-    const room = this.room;
-    if (!room || room.hostId !== this.playerId) return;
-    if (room.timer && room.onTimerEnd) {
-      clearTimeout(room.timer);
-      const cb = room.onTimerEnd;
-      room.timer = null;
-      room.onTimerEnd = null;
-      cb();
-    }
-  }
-
-  private handleSpyHuntSubmit(payload: { targetPlayerId: string }) {
-    const room = this.room;
-    if (!room || room.phase !== "SPY_HUNT") return;
-    const isTraitor = room.factionByPlayerId[this.playerId] === "TRAITOR";
-    if (!isTraitor) return;
-
-    const targetRole = room.rolesByPlayerId[payload.targetPlayerId];
-    const spyFound = targetRole === "SPY";
-
-    const winner: Faction = spyFound ? "TRAITOR" : "LOYALIST";
-    const gameEndPayload: GameEndPayload = { winner, roles: { ...room.rolesByPlayerId } };
-    
-    this.transition(room, "GAME_END", 60_000, () => {});
-    this.fire("game:ended", gameEndPayload);
-  }
-
   private get room(): MockRoom | null {
     return this.roomCode ? ROOMS.get(this.roomCode) ?? null : null;
-  }
-
-  private broadcast(room: MockRoom, event: string, payload?: any) {
-    // In a real server this targets the room channel; here we just notify the local socket.
-    this.fire(event, payload);
-    if (event === "room:state" || event === "phase:changed") {
-      // also push fresh state when phase changes
-    }
   }
 
   private pushState() {
@@ -227,38 +142,26 @@ class MockSocket implements ConsensusSocket {
     }
   }
 
-  private handleCreate(payload: { displayName: string; settings?: Partial<RoomSettings> }) {
+  private transition(room: MockRoom, phase: Phase, durationMs: number, onEnd: () => void) {
+    if (room.timer) clearTimeout(room.timer);
+    room.phase = phase;
+    room.phaseEndsAt = Date.now() + durationMs;
+    room.onTimerEnd = onEnd;
+    this.phaseLock = null;
+    this.pushState();
+    room.timer = setTimeout(() => { room.timer = null; onEnd(); }, durationMs);
+  }
+
+  private handleCreate(payload: { displayName: string }) {
     const code = generateRoomCode();
-    const me: PublicPlayer = {
-      id: this.playerId,
-      name: payload.displayName || "Host",
-      seatIndex: 0,
-      isConnected: true,
-      missionHistory: [],
-    };
     const room: MockRoom = {
-      code,
-      hostId: this.playerId,
-      phase: "LOBBY",
-      phaseEndsAt: null,
-      settings: { discussionSeconds: payload.settings?.discussionSeconds ?? 90 },
-      players: [me],
-      rolesByPlayerId: {},
-      factionByPlayerId: {},
-      currentRound: null,
-      missions: Array(TOTAL_MISSIONS).fill(null),
-      secretActions: {},
-      votes: {},
-      teamVotes: {},
-      trustReveals: new Set(),
-      presidentRotationIndex: 0,
-      lastTeamVote: null,
-      lastMissionTally: null,
-      lastVoteResult: null,
-      loyalistWins: 0,
-      traitorWins: 0,
-      timer: null,
-      onTimerEnd: null,
+      code, hostId: this.playerId, phase: "LOBBY", phaseEndsAt: null,
+      settings: { discussionSeconds: 90 },
+      players: [{ id: this.playerId, name: payload.displayName || "Host", seatIndex: 0, isConnected: true, missionHistory: [] }],
+      rolesByPlayerId: {}, factionByPlayerId: {}, currentRound: null,
+      missions: Array(TOTAL_MISSIONS).fill(null), secretActions: {}, teamVotes: {}, trustReveals: new Set(),
+      presidentRotationIndex: 0, lastTeamVote: null, lastMissionTally: null,
+      loyalistWins: 0, traitorWins: 0, timer: null, onTimerEnd: null,
     };
     ROOMS.set(code, room);
     this.roomCode = code;
@@ -268,458 +171,218 @@ class MockSocket implements ConsensusSocket {
   private handleJoin(payload: { code: string; displayName: string }) {
     const code = payload.code.toUpperCase().trim();
     const room = ROOMS.get(code);
-    if (!room) {
-      this.fire("room:error", { code: "ROOM_NOT_FOUND", message: "No room with that code." });
-      return;
-    }
-    if (room.phase !== "LOBBY") {
-      this.fire("room:error", { code: "GAME_IN_PROGRESS", message: "Game already started." });
-      return;
-    }
-    if (room.players.length >= 10) {
-      this.fire("room:error", { code: "ROOM_FULL", message: "Room is full (10 max)." });
-      return;
-    }
-    const existingPlayer = room.players.find((p) => p.id === this.playerId);
-    if (existingPlayer) {
-      // Just update name if it's currently a placeholder
-      if (payload.displayName && (existingPlayer.name === "Player" || existingPlayer.name === "Host" || existingPlayer.name === "")) {
-        existingPlayer.name = payload.displayName;
-      }
-    } else {
-      room.players.push({
-        id: this.playerId,
-        name: payload.displayName || "Player",
-        seatIndex: room.players.length,
-        isConnected: true,
-        missionHistory: [],
-      });
-    }
+    if (!room || room.phase !== "LOBBY" || room.players.length >= 10) return;
+    room.players.push({ id: this.playerId, name: payload.displayName || "Player", seatIndex: room.players.length, isConnected: true, missionHistory: [] });
     this.roomCode = code;
     this.pushState();
   }
 
   private handleLeave() {
     const room = this.room;
-    if (!room) return;
-    room.players = room.players.filter((p) => p.id !== this.playerId);
-    if (room.players.length === 0) ROOMS.delete(room.code);
+    if (room) {
+      room.players = room.players.filter(p => p.id !== this.playerId);
+      if (room.players.length === 0) ROOMS.delete(room.code);
+    }
     this.roomCode = null;
+    this.pushState();
   }
 
   private handleSettings(payload: { discussionSeconds: number }) {
     const room = this.room;
-    if (!room || room.hostId !== this.playerId) return;
-    const s = Math.max(30, Math.min(300, Math.round(payload.discussionSeconds)));
-    room.settings.discussionSeconds = s;
-    this.pushState();
+    if (room && room.hostId === this.playerId) {
+      room.settings.discussionSeconds = payload.discussionSeconds;
+      this.pushState();
+    }
   }
 
   private handleAddBot() {
     const room = this.room;
-    if (!room || room.hostId !== this.playerId || room.phase !== "LOBBY") return;
-    if (room.players.length >= 10) return;
-    const [bot] = makeBots(1, room.hostId);
-    bot.seatIndex = room.players.length;
-    room.players.push(bot);
-    this.pushState();
+    if (room && room.hostId === this.playerId && room.players.length < 10) {
+      const name = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
+      room.players.push({ id: `bot_${Math.random()}`, name, seatIndex: room.players.length, isConnected: true, missionHistory: [] });
+      this.pushState();
+    }
   }
 
   private handleRemoveBot() {
     const room = this.room;
-    if (!room || room.hostId !== this.playerId || room.phase !== "LOBBY") return;
-    const lastBotIdx = [...room.players].reverse().findIndex((p) => p.id.startsWith("bot_"));
-    if (lastBotIdx === -1) return;
-    const idx = room.players.length - 1 - lastBotIdx;
-    room.players.splice(idx, 1);
-    room.players.forEach((p, i) => (p.seatIndex = i));
-    this.pushState();
+    if (room && room.hostId === this.playerId) {
+      const idx = room.players.findIndex(p => p.id.startsWith("bot_"));
+      if (idx !== -1) room.players.splice(idx, 1);
+      this.pushState();
+    }
   }
 
   private handleStart() {
     const room = this.room;
-    if (!room || room.hostId !== this.playerId) return;
-    if (room.players.length < 6 || room.players.length > 10) {
-      this.fire("room:error", { code: "BAD_PLAYER_COUNT", message: "Need 6–10 players." });
-      return;
-    }
+    if (!room || room.hostId !== this.playerId || room.players.length < 6) return;
     this.assignRoles(room);
     this.pushState();
-    setTimeout(() => {
-      this.transition(room, "ROLE_ASSIGNMENT", 12000, () => this.startRound(room));
-    }, 100);
+    setTimeout(() => this.transition(room, "ROLE_ASSIGNMENT", 12000, () => this.startRound(room)), 100);
   }
 
   private assignRoles(room: MockRoom) {
     const dist = ROLE_DISTRIBUTION[room.players.length];
-    const ids = shuffle(room.players.map((p) => p.id));
-    
+    const ids = shuffle(room.players.map(p => p.id));
     const traitorIds = new Set(ids.slice(0, dist.traitors));
     const spyId = ids.slice(dist.traitors, dist.traitors + dist.spies)[0];
-    
-    const presidentId = ids.find((id) => !traitorIds.has(id) && id !== spyId) || ids[0];
-    room.presidentRotationIndex = room.players.findIndex((p) => p.id === presidentId);
-
-    room.players.forEach((p) => {
-      if (traitorIds.has(p.id)) {
-        room.rolesByPlayerId[p.id] = "TRAITOR";
-        room.factionByPlayerId[p.id] = "TRAITOR";
-      } else if (p.id === spyId) {
-        room.rolesByPlayerId[p.id] = "SPY";
-        room.factionByPlayerId[p.id] = "LOYALIST";
-      } else {
-        room.rolesByPlayerId[p.id] = "LOYALIST";
-        room.factionByPlayerId[p.id] = "LOYALIST";
-      }
-    });
-
-    // Send roles to each player
+    room.presidentRotationIndex = Math.floor(Math.random() * room.players.length);
     room.players.forEach(p => {
-      const myRole = room.rolesByPlayerId[p.id];
-      const myFaction = room.factionByPlayerId[p.id];
-      const payload: MyRolePayload = { role: myRole, faction: myFaction };
-      
-      // Spy knows everyone's roles
-      if (myRole === "SPY") {
-        payload.knownRoles = { ...room.rolesByPlayerId };
+      const isSpy = p.id === spyId;
+      const isTraitor = traitorIds.has(p.id);
+      room.rolesByPlayerId[p.id] = isSpy ? "SPY" : isTraitor ? "TRAITOR" : "LOYALIST";
+      room.factionByPlayerId[p.id] = isTraitor ? "TRAITOR" : "LOYALIST";
+      if (p.id === this.playerId) {
+        this.fire("you:role", { role: room.rolesByPlayerId[p.id], faction: room.factionByPlayerId[p.id], knownRoles: isSpy ? { ...room.rolesByPlayerId } : undefined });
       }
-      
-      // In a real server this is a private emit; here we fire it and trust the client filter
-      this.fire("you:role", payload);
     });
   }
 
   private startRound(room: MockRoom) {
-    const alive = room.players.filter((p) => p.isAlive);
-    // Rotate president among alive players
-    let president = room.players[room.presidentRotationIndex % room.players.length];
-    while (!president.isAlive) {
-      room.presidentRotationIndex = (room.presidentRotationIndex + 1) % room.players.length;
-      president = room.players[room.presidentRotationIndex];
-    }
-
-    const roundNo = (room.currentRound?.no ?? 0) + 1;
-    room.currentRound = {
-      no: roundNo,
-      presidentId: president.id,
-      team: [],
-      missionResult: null,
-    };
-    room.secretActions = {};
-    room.votes = {};
-    room.teamVotes = {};
-    room.trustReveals = new Set();
-    room.lastTeamVote = null;
-    room.lastMissionTally = null;
-    room.lastVoteResult = null;
-
-    this.transition(room, "DISCUSSION", room.settings.discussionSeconds * 1000, () => {
-      this.transition(room, "TEAM_SELECTION", 30_000, () => this.autoPickTeamIfNeeded(room));
-    });
-
-    // Notify private "you are on team" later when team is selected
+    room.currentRound = { no: (room.currentRound?.no || 0) + 1, presidentId: room.players[room.presidentRotationIndex].id, team: [], missionResult: null };
+    room.secretActions = {}; room.teamVotes = {};
+    this.transition(room, "DISCUSSION", room.settings.discussionSeconds * 1000, () => this.autoPickTeamIfNeeded(room));
   }
 
   private autoPickTeamIfNeeded(room: MockRoom) {
-    if (!room.currentRound) return;
-    if (room.currentRound.team.length === 0) {
-      const teamSize = TEAM_SIZES[room.players.length][room.currentRound.no - 1];
-      const aliveIds = room.players.map((p) => p.id);
-      const picked = shuffle(aliveIds).slice(0, teamSize);
-      if (!picked.includes(room.currentRound.presidentId)) {
-        picked[0] = room.currentRound.presidentId;
-      }
-      room.currentRound.team = picked;
-    }
+    if (room.phase !== "DISCUSSION") return;
+    const teamSize = TEAM_SIZES[room.players.length][room.currentRound!.no - 1];
+    room.currentRound!.team = shuffle(room.players.map(p => p.id)).slice(0, teamSize);
     this.beginTeamVoting(room);
   }
 
   private handleTeamSubmit(payload: { playerIds: string[] }) {
     const room = this.room;
-    if (!room || !room.currentRound) return;
-    if (room.phase !== "TEAM_SELECTION") return;
-    if (room.currentRound.presidentId !== this.playerId) return;
-    const teamSize = TEAM_SIZES[room.players.length][room.currentRound.no - 1];
-    if (payload.playerIds.length !== teamSize) return;
-    room.currentRound.team = payload.playerIds;
-    if (room.timer) clearTimeout(room.timer);
+    if (!room || room.phase !== "TEAM_SELECTION") return;
+    room.currentRound!.team = payload.playerIds;
     this.beginTeamVoting(room);
   }
 
   private beginTeamVoting(room: MockRoom) {
-    room.teamVotes = {};
-    this.transition(room, "TEAM_VOTING", 25_000, () => this.resolveTeamVoting(room));
-    // Bots auto-vote
-    setTimeout(() => this.autoSubmitBotTeamVotes(room), 1000 + Math.random() * 3000);
-  }
-
-  private beginSecretAction(room: MockRoom) {
-    // Notify each team member privately (in mock, only "me" matters)
-    if (this.room?.currentRound?.team.includes(this.playerId)) {
-      this.fire("you:youAreOnTeam", { roundNo: room.currentRound!.no });
-    }
-    this.transition(room, "SECRET_ACTION", 25_000, () => this.resolveMission(room));
-
-    // Bots auto-submit
-    setTimeout(() => this.autoSubmitBotActions(room), 1500 + Math.random() * 4000);
-  }
-
-  private autoSubmitBotActions(room: MockRoom) {
-    if (!room.currentRound || room.phase !== "SECRET_ACTION") return;
-    for (const pid of room.currentRound.team) {
-      if (pid === this.playerId) continue;
-      if (room.secretActions[pid]) continue;
-      const isTraitor = room.factionByPlayerId[pid] === "TRAITOR";
-      // Traitors sabotage ~70% of the time, loyalists always support
-      const action: SecretAction = isTraitor && Math.random() < 0.7 ? "SABOTAGE" : "SUPPORT";
-      room.secretActions[pid] = action;
-    }
-    if (this.allTeamActed(room)) {
-      if (room.timer) clearTimeout(room.timer);
-      this.resolveMission(room);
-    }
-  }
-
-  private allTeamActed(room: MockRoom): boolean {
-    if (!room.currentRound) return false;
-    return room.currentRound.team.every((id) => room.secretActions[id]);
-  }
-
-  private handleActionSubmit(payload: { action: SecretAction }) {
-    const room = this.room;
-    if (!room || !room.currentRound) return;
-    if (room.phase !== "SECRET_ACTION") return;
-    if (!room.currentRound.team.includes(this.playerId)) return;
-    if (room.secretActions[this.playerId]) return; // dedupe
-    // Loyalists cannot sabotage — server-side guard
-    if (room.factionByPlayerId[this.playerId] === "LOYALIST" && payload.action === "SABOTAGE") {
-      room.secretActions[this.playerId] = "SUPPORT";
-    } else {
-      room.secretActions[this.playerId] = payload.action;
-    }
-    if (this.allTeamActed(room)) {
-      if (room.timer) clearTimeout(room.timer);
-      this.resolveMission(room);
-    }
+    this.transition(room, "TEAM_VOTING", 30000, () => this.resolveTeamVote(room));
+    setTimeout(() => this.autoSubmitBotTeamVotes(room), 2000);
   }
 
   private autoSubmitBotTeamVotes(room: MockRoom) {
     if (room.phase !== "TEAM_VOTING") return;
-    const aliveIds = room.players.filter((p) => p.isAlive).map((p) => p.id);
-    for (const pid of aliveIds) {
-      if (pid === this.playerId) continue;
-      if (room.teamVotes[pid]) continue;
-      // Bots usually approve (80%), for simplicity
-      room.teamVotes[pid] = Math.random() < 0.8 ? "APPROVE" : "REJECT";
-    }
-    if (this.allAliveTeamVoted(room)) {
-      if (room.timer) clearTimeout(room.timer);
-      this.resolveTeamVoting(room);
-    }
-  }
-
-  private allAliveTeamVoted(room: MockRoom) {
-    return room.players.filter((p) => p.isAlive).every((p) => room.teamVotes[p.id]);
+    room.players.forEach(p => { if (p.id !== this.playerId) room.teamVotes[p.id] = Math.random() > 0.4 ? "APPROVE" : "REJECT"; });
+    if (Object.keys(room.teamVotes).length === room.players.length) this.resolveTeamVote(room);
   }
 
   private handleTeamVoteSubmit(payload: { vote: TeamVote }) {
     const room = this.room;
-    if (!room) return;
-    if (room.phase !== "TEAM_VOTING") return;
-    const me = room.players.find((p) => p.id === this.playerId);
-    if (!me?.isAlive) return;
-    if (room.teamVotes[this.playerId]) return;
-
-    // Check if using double vote
-    if (payload.vote === "DOUBLE_APPROVE") {
-      if (me.doubleApproveUsed) return;
-      me.doubleApproveUsed = true;
-    } else if (payload.vote === "DOUBLE_REJECT") {
-      if (me.doubleRejectUsed) return;
-      me.doubleRejectUsed = true;
-    }
-
-    room.teamVotes[this.playerId] = payload.vote;
-    if (this.allAliveTeamVoted(room)) {
-      if (room.timer) clearTimeout(room.timer);
-      this.resolveTeamVoting(room);
+    if (room?.phase === "TEAM_VOTING") {
+      room.teamVotes[this.playerId] = payload.vote;
+      if (Object.keys(room.teamVotes).length === room.players.length) this.resolveTeamVote(room);
     }
   }
 
-  private resolveTeamVoting(room: MockRoom) {
-    let approveScore = 0;
-    let rejectScore = 0;
-
-    for (const pid in room.teamVotes) {
-      const vote = room.teamVotes[pid];
-      const weight = (vote === "DOUBLE_APPROVE" || vote === "DOUBLE_REJECT") ? 2 : 1;
-      if (vote === "APPROVE" || vote === "DOUBLE_APPROVE") approveScore += weight;
-      else rejectScore += weight;
-    }
-
-    const approved = approveScore > rejectScore;
-    room.lastTeamVote = { tallies: { ...room.teamVotes }, approved };
-
-    this.fire("team:voteResult", room.lastTeamVote);
-
-    this.transition(room, "RESULT_REVEAL", 4000, () => {
-      if (approved) {
-        this.beginSecretAction(room);
-      } else {
-        do {
-          room.presidentRotationIndex = (room.presidentRotationIndex + 1) % room.players.length;
-        } while (!room.players[room.presidentRotationIndex].isAlive);
-        this.transition(room, "TEAM_SELECTION", 30_000, () => this.autoPickTeamIfNeeded(room));
-      }
+  private resolveTeamVote(room: MockRoom) {
+    if (this.phaseLock === "TEAM_VOTING") return;
+    this.phaseLock = "TEAM_VOTING";
+    let approves = 0, rejects = 0;
+    Object.values(room.teamVotes).forEach(v => {
+      if (v === "APPROVE" || v === "DOUBLE_APPROVE") approves += (v === "APPROVE" ? 1 : 2);
+      else rejects += (v === "REJECT" ? 1 : 2);
     });
+    const approved = approves > rejects;
+    room.lastTeamVote = { tallies: { ...room.teamVotes }, approved };
+    if (approved) {
+      this.transition(room, "SECRET_ACTION", 30000, () => this.resolveMission(room));
+      setTimeout(() => this.autoSubmitBotActions(room), 2000);
+    } else {
+      room.presidentRotationIndex = (room.presidentRotationIndex + 1) % room.players.length;
+      this.transition(room, "TEAM_SELECTION", 4000, () => {
+        if (room.players[room.presidentRotationIndex].id.startsWith("bot_")) this.autoPickTeamIfNeeded(room);
+      });
+    }
+  }
+
+  private autoSubmitBotActions(room: MockRoom) {
+    if (room.phase !== "SECRET_ACTION") return;
+    room.currentRound!.team.forEach(pid => {
+      if (pid !== this.playerId) room.secretActions[pid] = (room.factionByPlayerId[pid] === "TRAITOR" && Math.random() > 0.5) ? "SABOTAGE" : "SUPPORT";
+    });
+    if (Object.keys(room.secretActions).length === room.currentRound!.team.length) this.resolveMission(room);
+  }
+
+  private handleActionSubmit(payload: { action: SecretAction }) {
+    const room = this.room;
+    if (room?.phase === "SECRET_ACTION") {
+      room.secretActions[this.playerId] = payload.action;
+      if (Object.keys(room.secretActions).length === room.currentRound!.team.length) this.resolveMission(room);
+    }
   }
 
   private resolveMission(room: MockRoom) {
-    if (!room.currentRound) return;
-    let support = 0;
-    let sabotage = 0;
-    for (const id of room.currentRound.team) {
-      const a = room.secretActions[id] ?? "SUPPORT";
-      if (a === "SUPPORT") support++;
-      else sabotage++;
-    }
-    const result: MissionResult = sabotage >= 1 ? "SABOTAGE" : "SUCCESS";
-    room.currentRound.missionResult = result;
-    room.lastMissionTally = { supportCount: support, sabotageCount: sabotage };
-    const slot = room.missions.findIndex((m) => m === null);
-    if (slot >= 0) room.missions[slot] = result;
-    if (result === "SUCCESS") room.loyalistWins++;
-    else room.traitorWins++;
-
-    // Record history for all participants
-    for (const pid of room.currentRound.team) {
-      const p = room.players.find((pp) => pp.id === pid);
-      if (p) {
-        p.missionHistory.push({ roundNo: room.currentRound.no, result });
-      }
-    }
-
-    this.fire("mission:result", { result, supportCount: support, sabotageCount: sabotage });
-
-    this.transition(room, "RESULT_REVEAL", 5000, () => {
-      // Trust Reveal phase only after a SABOTAGE (Traitor win), otherwise skip
-      if (result === "SABOTAGE") {
-        this.transition(room, "TRUST_REVEAL", 15_000, () => this.checkWin(room));
-      } else {
-        this.checkWin(room);
-      }
+    if (this.phaseLock === "SECRET_ACTION") return;
+    this.phaseLock = "SECRET_ACTION";
+    const actions = Object.values(room.secretActions);
+    const sabotages = actions.filter(a => a === "SABOTAGE").length;
+    const success = sabotages === 0;
+    if (success) room.loyalistWins++; else room.traitorWins++;
+    room.missions[room.currentRound!.no - 1] = success ? "SUCCESS" : "SABOTAGE";
+    room.lastMissionTally = { supportCount: actions.length - sabotages, sabotageCount: sabotages };
+    room.currentRound!.team.forEach(pid => {
+      const p = room.players.find(pp => pp.id === pid);
+      if (p) p.missionHistory.push({ roundNo: room.currentRound!.no, result: success ? "SUCCESS" : "SABOTAGE" });
     });
-  }
-
-  private handleTrustReveal(payload: { targetPlayerId: string }) {
-    const room = this.room;
-    if (!room) return;
-    if (room.phase !== "TRUST_REVEAL") return;
-    if (room.factionByPlayerId[this.playerId] !== "LOYALIST") return;
-    const target = room.players.find((p) => p.id === payload.targetPlayerId);
-    if (!target) return;
-    const key = `${this.playerId}->${target.id}`;
-    if (room.trustReveals.has(key)) return;
-    room.trustReveals.add(key);
-    if (target.id === this.playerId) {
-      const me = room.players.find((p) => p.id === this.playerId)!;
-      const tp: TrustRevealPayload = {
-        fromPlayerId: this.playerId,
-        fromName: me.name,
-        role: room.rolesByPlayerId[this.playerId],
-      };
-      this.fire("you:trustRevealed", tp);
-    }
+    this.transition(room, "RESULT_REVEAL", 5000, () => this.checkWin(room));
   }
 
   private checkWin(room: MockRoom) {
     let winner: Faction | null = null;
-    
-    if (room.traitorWins >= MISSIONS_TO_WIN) {
-      winner = "TRAITOR";
-    } else if (room.loyalistWins >= MISSIONS_TO_WIN) {
-      this.transition(room, "SPY_HUNT", 60_000, () => {
-        const payload: GameEndPayload = { winner: "LOYALIST", roles: { ...room.rolesByPlayerId } };
-        this.transition(room, "GAME_END", 60_000, () => {});
-        this.fire("game:ended", payload);
+    if (room.traitorWins >= MISSIONS_TO_WIN) winner = "TRAITOR";
+    else if (room.loyalistWins >= MISSIONS_TO_WIN) {
+      this.transition(room, "SPY_HUNT", 60000, () => {
+        this.transition(room, "GAME_END", 0, () => {});
+        this.fire("game:ended", { winner: "LOYALIST", roles: { ...room.rolesByPlayerId } });
       });
       return;
-    } else if (room.missions.every((m) => m !== null)) {
+    } else if (room.missions.every(m => m !== null)) {
       winner = room.loyalistWins > room.traitorWins ? "LOYALIST" : "TRAITOR";
-      if (winner === "LOYALIST") {
-         this.transition(room, "SPY_HUNT", 60_000, () => {
-            const payload: GameEndPayload = { winner: "LOYALIST", roles: { ...room.rolesByPlayerId } };
-            this.transition(room, "GAME_END", 60_000, () => {});
-            this.fire("game:ended", payload);
-         });
-         return;
-      }
     }
 
     if (winner) {
-      const payload: GameEndPayload = { winner, roles: { ...room.rolesByPlayerId } };
-      this.transition(room, "GAME_END", 60_000, () => {});
-      this.fire("game:ended", payload);
-      return;
+      this.transition(room, "GAME_END", 0, () => {});
+      this.fire("game:ended", { winner, roles: { ...room.rolesByPlayerId } });
+    } else {
+      room.presidentRotationIndex = (room.presidentRotationIndex + 1) % room.players.length;
+      this.startRound(room);
     }
-
-    room.presidentRotationIndex = (room.presidentRotationIndex + 1) % room.players.length;
-    this.startRound(room);
   }
 
   private handleReset() {
     const room = this.room;
-    if (!room || room.hostId !== this.playerId) return;
-    room.phase = "LOBBY";
-    room.phaseEndsAt = null;
-    room.rolesByPlayerId = {};
-    room.factionByPlayerId = {};
-    room.currentRound = null;
-    room.missions = Array(TOTAL_MISSIONS).fill(null);
-    room.secretActions = {};
-    room.votes = {};
-    room.trustReveals = new Set();
-    room.lastMissionTally = null;
-    room.lastVoteResult = null;
-    room.loyalistWins = 0;
-    room.traitorWins = 0;
-    room.players.forEach((p) => (p.isAlive = true));
-    if (room.timer) { clearTimeout(room.timer); room.timer = null; }
-    this.pushState();
+    if (room && room.hostId === this.playerId) {
+      room.phase = "LOBBY"; room.loyalistWins = 0; room.traitorWins = 0;
+      room.missions = Array(TOTAL_MISSIONS).fill(null);
+      room.players.forEach(p => p.missionHistory = []);
+      this.pushState();
+    }
   }
 
-  private transition(
-    room: MockRoom,
-    phase: Phase,
-    durationMs: number,
-    onEnd: () => void,
-  ) {
-    if (room.timer) {
-      clearTimeout(room.timer);
-      room.timer = null;
+  private handleSkipPhase() {
+    const room = this.room;
+    if (room && room.hostId === this.playerId && room.timer && room.onTimerEnd) {
+      clearTimeout(room.timer); room.timer = null;
+      const cb = room.onTimerEnd; room.onTimerEnd = null;
+      cb();
     }
-    room.phase = phase;
-    room.phaseEndsAt = Date.now() + durationMs;
-    room.onTimerEnd = onEnd;
-    this.fire("phase:changed", { phase, phaseEndsAt: room.phaseEndsAt });
-    this.pushState();
-    room.timer = setTimeout(() => {
-      room.timer = null;
-      room.onTimerEnd = null;
-      onEnd();
-    }, durationMs);
+  }
+
+  private handleSpyHuntSubmit(payload: { targetPlayerId: string }) {
+    const room = this.room;
+    if (room?.phase === "SPY_HUNT") {
+      const winner: Faction = room.rolesByPlayerId[payload.targetPlayerId] === "SPY" ? "TRAITOR" : "LOYALIST";
+      this.transition(room, "GAME_END", 0, () => {});
+      this.fire("game:ended", { winner, roles: { ...room.rolesByPlayerId } });
+    }
   }
 }
 
-// ---------- Singleton ----------
-
 let socket: ConsensusSocket | null = null;
-
 export function getSocket(): ConsensusSocket {
-  if (!socket) {
-    // To use a real server instead, replace this with a Socket.io adapter
-    // that targets `import.meta.env.VITE_SOCKET_URL` and emits the same events.
-    socket = new MockSocket();
-  }
+  if (!socket) socket = new MockSocket();
   return socket;
 }
