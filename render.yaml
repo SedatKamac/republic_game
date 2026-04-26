@@ -3,7 +3,7 @@ services:
     name: republic-game
     runtime: node
     buildCommand: bun install && bun run build
-    startCommand: bun run start
+    startCommand: node server.mjs
     envVars:
       - key: BUN_VERSION
         value: 1.3.4
