@@ -1,8 +1,7 @@
 import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { PlayerGrid } from "@/components/room/PlayerGrid";
-import type { RoomState } from "@/lib/gameTypes";
-import { TEAM_SIZE_BY_PLAYERS } from "@/lib/gameTypes";
+import { TEAM_SIZES } from "@/lib/gameTypes";
 
 interface TeamSelectionPhaseProps {
   room: RoomState;
@@ -12,7 +11,8 @@ interface TeamSelectionPhaseProps {
 
 export function TeamSelectionPhase({ room, meId, onSubmit }: TeamSelectionPhaseProps) {
   const isPresident = room.currentRound?.presidentId === meId;
-  const teamSize = TEAM_SIZE_BY_PLAYERS[room.players.length] ?? 3;
+  const roundNo = room.currentRound?.no || 1;
+  const teamSize = TEAM_SIZES[room.players.length]?.[roundNo - 1] ?? 3;
   const president = room.players.find((p) => p.id === room.currentRound?.presidentId);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
@@ -29,8 +29,8 @@ export function TeamSelectionPhase({ room, meId, onSubmit }: TeamSelectionPhaseP
   const canSubmit = isPresident && selected.size === teamSize;
   const submitted = (room.currentRound?.team.length ?? 0) > 0;
 
-  const aliveSelectable = useMemo(
-    () => new Set(room.players.filter((p) => p.isAlive).map((p) => p.id)),
+  const selectableIds = useMemo(
+    () => new Set(room.players.map((p) => p.id)),
     [room.players],
   );
 
@@ -57,7 +57,7 @@ export function TeamSelectionPhase({ room, meId, onSubmit }: TeamSelectionPhaseP
         presidentId={room.currentRound?.presidentId}
         selectedIds={selected}
         meId={meId}
-        onPlayerClick={isPresident && !submitted ? (id) => aliveSelectable.has(id) && toggle(id) : undefined}
+        onPlayerClick={isPresident && !submitted ? (id) => selectableIds.has(id) && toggle(id) : undefined}
       />
 
       {isPresident && !submitted && (
