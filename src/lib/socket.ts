@@ -48,8 +48,10 @@ interface MockRoom {
   missions: (MissionResult | null)[];
   secretActions: Record<string, SecretAction>; // playerId -> action this round
   votes: Record<string, string>; // voterId -> targetId
+  teamVotes: Record<string, TeamVote>; // voterId -> vote
   trustReveals: Set<string>; // "fromId->toId" dedupe per round
   presidentRotationIndex: number;
+  lastTeamVote: { tallies: Record<string, TeamVote>; approved: boolean } | null;
   lastMissionTally: { supportCount: number; sabotageCount: number } | null;
   lastVoteResult: { eliminatedPlayerId: string | null; tallies: Record<string, number> } | null;
   loyalistWins: number;
@@ -112,6 +114,7 @@ function publicRoomState(room: MockRoom): RoomState {
     players: room.players.map((p) => ({ ...p })),
     currentRound: room.currentRound ? { ...room.currentRound, team: [...room.currentRound.team] } : null,
     missions: [...room.missions],
+    lastTeamVote: room.lastTeamVote,
     lastMissionTally: room.lastMissionTally,
     lastVoteResult: room.lastVoteResult,
   };
@@ -166,6 +169,7 @@ class MockSocket implements ConsensusSocket {
       case "lobby:removeBot": return this.handleRemoveBot();
       case "game:start": return this.handleStart();
       case "team:submit": return this.handleTeamSubmit(payload);
+      case "team:vote": return this.handleTeamVoteSubmit(payload);
       case "action:submit": return this.handleActionSubmit(payload);
       case "trust:reveal": return this.handleTrustReveal(payload);
       case "vote:submit": return this.handleVoteSubmit(payload);
@@ -211,8 +215,10 @@ class MockSocket implements ConsensusSocket {
       missions: Array(TOTAL_MISSIONS).fill(null),
       secretActions: {},
       votes: {},
+      teamVotes: {},
       trustReveals: new Set(),
       presidentRotationIndex: 0,
+      lastTeamVote: null,
       lastMissionTally: null,
       lastVoteResult: null,
       loyalistWins: 0,
@@ -269,7 +275,7 @@ class MockSocket implements ConsensusSocket {
   private handleSettings(payload: { discussionSeconds: number }) {
     const room = this.room;
     if (!room || room.hostId !== this.playerId) return;
-    const s = Math.max(60, Math.min(120, Math.round(payload.discussionSeconds)));
+    const s = Math.max(30, Math.min(300, Math.round(payload.discussionSeconds)));
     room.settings.discussionSeconds = s;
     this.pushState();
   }
@@ -351,7 +357,9 @@ class MockSocket implements ConsensusSocket {
     };
     room.secretActions = {};
     room.votes = {};
+    room.teamVotes = {};
     room.trustReveals = new Set();
+    room.lastTeamVote = null;
     room.lastMissionTally = null;
     room.lastVoteResult = null;
 
@@ -374,7 +382,7 @@ class MockSocket implements ConsensusSocket {
       }
       room.currentRound.team = picked;
     }
-    this.beginSecretAction(room);
+    this.beginTeamVoting(room);
   }
 
   private handleTeamSubmit(payload: { playerIds: string[] }) {
@@ -388,7 +396,14 @@ class MockSocket implements ConsensusSocket {
     if (!allAlive) return;
     room.currentRound.team = payload.playerIds;
     if (room.timer) clearTimeout(room.timer);
-    this.beginSecretAction(room);
+    this.beginTeamVoting(room);
+  }
+
+  private beginTeamVoting(room: MockRoom) {
+    room.teamVotes = {};
+    this.transition(room, "TEAM_VOTING", 25_000, () => this.resolveTeamVoting(room));
+    // Bots auto-vote
+    setTimeout(() => this.autoSubmitBotTeamVotes(room), 1000 + Math.random() * 3000);
   }
 
   private beginSecretAction(room: MockRoom) {
@@ -441,6 +456,77 @@ class MockSocket implements ConsensusSocket {
     }
   }
 
+  private autoSubmitBotTeamVotes(room: MockRoom) {
+    if (room.phase !== "TEAM_VOTING") return;
+    const aliveIds = room.players.filter((p) => p.isAlive).map((p) => p.id);
+    for (const pid of aliveIds) {
+      if (pid === this.playerId) continue;
+      if (room.teamVotes[pid]) continue;
+      // Bots usually approve (80%), for simplicity
+      room.teamVotes[pid] = Math.random() < 0.8 ? "APPROVE" : "REJECT";
+    }
+    if (this.allAliveTeamVoted(room)) {
+      if (room.timer) clearTimeout(room.timer);
+      this.resolveTeamVoting(room);
+    }
+  }
+
+  private allAliveTeamVoted(room: MockRoom) {
+    return room.players.filter((p) => p.isAlive).every((p) => room.teamVotes[p.id]);
+  }
+
+  private handleTeamVoteSubmit(payload: { vote: TeamVote }) {
+    const room = this.room;
+    if (!room) return;
+    if (room.phase !== "TEAM_VOTING") return;
+    const me = room.players.find((p) => p.id === this.playerId);
+    if (!me?.isAlive) return;
+    if (room.teamVotes[this.playerId]) return;
+
+    // Check if using double vote
+    if (payload.vote === "DOUBLE_APPROVE") {
+      if (me.doubleApproveUsed) return;
+      me.doubleApproveUsed = true;
+    } else if (payload.vote === "DOUBLE_REJECT") {
+      if (me.doubleRejectUsed) return;
+      me.doubleRejectUsed = true;
+    }
+
+    room.teamVotes[this.playerId] = payload.vote;
+    if (this.allAliveTeamVoted(room)) {
+      if (room.timer) clearTimeout(room.timer);
+      this.resolveTeamVoting(room);
+    }
+  }
+
+  private resolveTeamVoting(room: MockRoom) {
+    let approveScore = 0;
+    let rejectScore = 0;
+
+    for (const pid in room.teamVotes) {
+      const vote = room.teamVotes[pid];
+      const weight = (vote === "DOUBLE_APPROVE" || vote === "DOUBLE_REJECT") ? 2 : 1;
+      if (vote === "APPROVE" || vote === "DOUBLE_APPROVE") approveScore += weight;
+      else rejectScore += weight;
+    }
+
+    const approved = approveScore > rejectScore;
+    room.lastTeamVote = { tallies: { ...room.teamVotes }, approved };
+
+    this.fire("team:voteResult", room.lastTeamVote);
+
+    this.transition(room, "RESULT_REVEAL", 4000, () => {
+      if (approved) {
+        this.beginSecretAction(room);
+      } else {
+        do {
+          room.presidentRotationIndex = (room.presidentRotationIndex + 1) % room.players.length;
+        } while (!room.players[room.presidentRotationIndex].isAlive);
+        this.transition(room, "TEAM_SELECTION", 30_000, () => this.autoPickTeamIfNeeded(room));
+      }
+    });
+  }
+
   private resolveMission(room: MockRoom) {
     if (!room.currentRound) return;
     let support = 0;
@@ -461,8 +547,8 @@ class MockSocket implements ConsensusSocket {
     this.fire("mission:result", { result, supportCount: support, sabotageCount: sabotage });
 
     this.transition(room, "RESULT_REVEAL", 5000, () => {
-      // Trust Reveal phase only after a SUCCESS, otherwise skip
-      if (result === "SUCCESS") {
+      // Trust Reveal phase only after a SABOTAGE (Traitor win), otherwise skip
+      if (result === "SABOTAGE") {
         this.transition(room, "TRUST_REVEAL", 15_000, () => this.beginVoting(room));
       } else {
         this.beginVoting(room);

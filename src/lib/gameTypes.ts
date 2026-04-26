@@ -7,6 +7,7 @@ export type Phase =
   | "ROLE_ASSIGNMENT"
   | "DISCUSSION"
   | "TEAM_SELECTION"
+  | "TEAM_VOTING"
   | "SECRET_ACTION"
   | "RESULT_REVEAL"
   | "TRUST_REVEAL"
@@ -18,6 +19,7 @@ export type Faction = "LOYALIST" | "TRAITOR";
 export type Role = "LOYALIST" | "TRAITOR" | "PRESIDENT";
 export type MissionResult = "SUCCESS" | "SABOTAGE";
 export type SecretAction = "SUPPORT" | "SABOTAGE";
+export type TeamVote = "APPROVE" | "REJECT" | "DOUBLE_APPROVE" | "DOUBLE_REJECT";
 
 export interface PublicPlayer {
   id: string;
@@ -25,10 +27,12 @@ export interface PublicPlayer {
   seatIndex: number;
   isAlive: boolean;
   isConnected: boolean;
+  doubleApproveUsed?: boolean;
+  doubleRejectUsed?: boolean;
 }
 
 export interface RoomSettings {
-  discussionSeconds: number; // 60–120
+  discussionSeconds: number; // 30–300
 }
 
 export interface CurrentRound {
@@ -47,7 +51,8 @@ export interface RoomState {
   players: PublicPlayer[];
   currentRound: CurrentRound | null;
   missions: (MissionResult | null)[]; // length 5, best-of-5
-  // Phase-specific public payloads (revealed only when phase >= reveal)
+  // Phase-specific public payloads
+  lastTeamVote?: { tallies: Record<string, TeamVote>; approved: boolean } | null;
   lastMissionTally?: { supportCount: number; sabotageCount: number } | null;
   lastVoteResult?: { eliminatedPlayerId: string | null; tallies: Record<string, number> } | null;
 }
@@ -82,6 +87,7 @@ export const PHASE_LABEL: Record<Phase, string> = {
   ROLE_ASSIGNMENT: "Roles being assigned",
   DISCUSSION: "Discussion",
   TEAM_SELECTION: "Team Selection",
+  TEAM_VOTING: "Team Voting",
   SECRET_ACTION: "Secret Action",
   RESULT_REVEAL: "Mission Result",
   TRUST_REVEAL: "Trust Reveal",

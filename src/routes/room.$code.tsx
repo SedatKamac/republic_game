@@ -11,6 +11,7 @@ import { LobbyPhase } from "@/components/phases/LobbyPhase";
 import { RoleRevealPhase } from "@/components/phases/RoleRevealPhase";
 import { DiscussionPhase } from "@/components/phases/DiscussionPhase";
 import { TeamSelectionPhase } from "@/components/phases/TeamSelectionPhase";
+import { TeamVotingPhase } from "@/components/phases/TeamVotingPhase";
 import { SecretActionPhase } from "@/components/phases/SecretActionPhase";
 import { ResultRevealPhase } from "@/components/phases/ResultRevealPhase";
 import { TrustRevealPhase } from "@/components/phases/TrustRevealPhase";
@@ -93,6 +94,8 @@ function RoomPage() {
       ? "Talk freely. Find the patterns."
       : room.phase === "TEAM_SELECTION"
         ? "President is choosing the mission team."
+      : room.phase === "TEAM_VOTING"
+        ? "Everyone votes to approve or reject the team."
         : room.phase === "SECRET_ACTION"
           ? "Team members are voting in secret."
           : room.phase === "VOTING"
@@ -165,6 +168,13 @@ function RoomPage() {
                 room={room}
                 meId={playerId}
                 onSubmit={(ids) => socket.emit("team:submit", { playerIds: ids })}
+              />
+            )}
+            {room.phase === "TEAM_VOTING" && (
+              <TeamVotingPhase
+                room={room}
+                meId={playerId}
+                onSubmit={(vote) => socket.emit("team:vote", { vote })}
               />
             )}
             {room.phase === "SECRET_ACTION" && (
