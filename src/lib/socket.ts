@@ -51,11 +51,18 @@ interface MockRoom {
   onTimerEnd: (() => void) | null;
 }
 
-const ROOMS = new Map<string, MockRoom>();
-const ROOMS_KEY = "consensus_mock_rooms";
-
 function isBrowser() {
   return typeof window !== "undefined";
+}
+
+const ROOMS = new Map<string, MockRoom>();
+const ROOMS_KEY = "consensus_mock_rooms";
+const SYNC_CHANNEL = isBrowser() ? new BroadcastChannel("consensus_sync") : null;
+
+if (SYNC_CHANNEL) {
+  SYNC_CHANNEL.onmessage = (e) => {
+    if (e.data === "sync") loadRooms();
+  };
 }
 
 function saveRooms() {
@@ -67,6 +74,7 @@ function saveRooms() {
     ])
   );
   localStorage.setItem(ROOMS_KEY, JSON.stringify(roomsObj));
+  SYNC_CHANNEL?.postMessage("sync");
 }
 
 function loadRooms() {
@@ -75,6 +83,7 @@ function loadRooms() {
   if (stored) {
     try {
       const roomsObj = JSON.parse(stored);
+      ROOMS.clear(); // Clear to ensure full sync
       Object.entries(roomsObj).forEach(([code, room]: [string, any]) => {
         ROOMS.set(code, { ...room, trustReveals: new Set(room.trustReveals), timer: null, onTimerEnd: null });
       });
