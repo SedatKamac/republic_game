@@ -36,9 +36,9 @@ export function PhaseHeader({ phase, remaining, roundNo, subtitle, isHost, onSki
             variant="outline"
             size="sm"
             onClick={onSkip}
-            className="h-8 text-[10px] uppercase tracking-widest font-mono gap-2 opacity-60 hover:opacity-100"
+            className="h-9 text-[10px] uppercase tracking-widest font-mono gap-2 border-primary/50 text-primary bg-primary/5 hover:bg-primary/10 shadow-lg shadow-primary/10"
           >
-            <FastForward className="h-3 w-3" /> Skip
+            <FastForward className="h-3.5 w-3.5" /> Süreyi Geç
           </Button>
         )}
         

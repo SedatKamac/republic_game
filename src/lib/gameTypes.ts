@@ -55,6 +55,7 @@ export interface RoomState {
   lastTeamVote?: { tallies: Record<string, TeamVote>; approved: boolean } | null;
   lastMissionTally?: { supportCount: number; sabotageCount: number } | null;
   lastVoteResult?: { eliminatedPlayerId: string | null; tallies: Record<string, number> } | null;
+  votedPlayerIds: string[];
 }
 
 export interface MyRolePayload {

@@ -80,6 +80,24 @@ export function SecretActionPhase({ room, meId, myRole, onSubmit }: SecretAction
           Action sealed. Waiting for the rest of the team…
         </div>
       )}
+
+      <div className="panel p-4">
+        <div className="flex flex-wrap gap-2 justify-center">
+          {room.currentRound?.team.map(pid => {
+            const p = room.players.find(pp => pp.id === pid);
+            return (
+              <div 
+                key={pid}
+                className={`h-2 w-2 rounded-full transition-colors duration-500 ${room.votedPlayerIds.includes(pid) ? 'bg-primary' : 'bg-surface-3'}`}
+                title={p?.name}
+              />
+            );
+          })}
+        </div>
+        <p className="text-[10px] text-center text-muted-foreground mt-2 uppercase tracking-tighter">
+          {room.votedPlayerIds.length} / {room.currentRound?.team.length} Team Members Voted
+        </p>
+      </div>
     </div>
   );
 }

@@ -82,6 +82,9 @@ function publicRoomState(room: MockRoom): RoomState {
     missions: [...room.missions],
     lastTeamVote: room.lastTeamVote,
     lastMissionTally: room.lastMissionTally,
+    votedPlayerIds: room.phase === "TEAM_VOTING" ? Object.keys(room.teamVotes) : 
+                    room.phase === "SECRET_ACTION" ? Object.keys(room.secretActions) : 
+                    room.phase === "SPY_HUNT" ? [] : [], // Add more if needed
   };
 }
 
@@ -171,7 +174,17 @@ class MockSocket implements ConsensusSocket {
   private handleJoin(payload: { code: string; displayName: string }) {
     const code = payload.code.toUpperCase().trim();
     const room = ROOMS.get(code);
-    if (!room || room.phase !== "LOBBY" || room.players.length >= 10) return;
+    if (!room) return;
+
+    const existingPlayer = room.players.find(p => p.id === this.playerId);
+    if (existingPlayer) {
+      existingPlayer.isConnected = true;
+      this.roomCode = code;
+      this.pushState();
+      return;
+    }
+
+    if (room.phase !== "LOBBY" || room.players.length >= 10) return;
     room.players.push({ id: this.playerId, name: payload.displayName || "Player", seatIndex: room.players.length, isConnected: true, missionHistory: [] });
     this.roomCode = code;
     this.pushState();
@@ -273,6 +286,7 @@ class MockSocket implements ConsensusSocket {
     const room = this.room;
     if (room?.phase === "TEAM_VOTING") {
       room.teamVotes[this.playerId] = payload.vote;
+      this.pushState();
       if (Object.keys(room.teamVotes).length === room.players.length) this.resolveTeamVote(room);
     }
   }
@@ -310,6 +324,7 @@ class MockSocket implements ConsensusSocket {
     const room = this.room;
     if (room?.phase === "SECRET_ACTION") {
       room.secretActions[this.playerId] = payload.action;
+      this.pushState();
       if (Object.keys(room.secretActions).length === room.currentRound!.team.length) this.resolveMission(room);
     }
   }
