@@ -52,6 +52,30 @@ interface MockRoom {
 }
 
 const ROOMS = new Map<string, MockRoom>();
+const ROOMS_KEY = "consensus_mock_rooms";
+
+function saveRooms() {
+  const roomsObj = Object.fromEntries(
+    Array.from(ROOMS.entries()).map(([code, room]) => [
+      code,
+      { ...room, trustReveals: Array.from(room.trustReveals), timer: null, onTimerEnd: null }
+    ])
+  );
+  localStorage.setItem(ROOMS_KEY, JSON.stringify(roomsObj));
+}
+
+function loadRooms() {
+  const stored = localStorage.getItem(ROOMS_KEY);
+  if (stored) {
+    try {
+      const roomsObj = JSON.parse(stored);
+      Object.entries(roomsObj).forEach(([code, room]: [string, any]) => {
+        ROOMS.set(code, { ...room, trustReveals: new Set(room.trustReveals), timer: null, onTimerEnd: null });
+      });
+    } catch (e) {}
+  }
+}
+
 const BOT_NAMES = ["Vega", "Kai", "Nova", "Zara", "Orion", "Lyra", "Echo", "Mira", "Jax", "Iris"];
 
 function shuffle<T>(arr: T[]): T[] {
@@ -168,12 +192,14 @@ class MockSocket implements ConsensusSocket {
       loyalistWins: 0, traitorWins: 0, timer: null, onTimerEnd: null,
     };
     ROOMS.set(code, room);
+    saveRooms();
     this.roomCode = code;
     this.pushState();
   }
 
   private handleJoin(payload: { code: string; displayName: string }) {
     const code = payload.code.toUpperCase().trim();
+    loadRooms(); // Ensure we have latest rooms from other tabs
     const room = ROOMS.get(code);
     if (!room) {
       this.fire("room:error", { code: "NOT_FOUND", message: "Oda bulunamadı. Lütfen kodu kontrol edin." });
@@ -199,6 +225,7 @@ class MockSocket implements ConsensusSocket {
     }
 
     room.players.push({ id: this.playerId, name: payload.displayName || "Player", seatIndex: room.players.length, isConnected: true, missionHistory: [] });
+    saveRooms();
     this.roomCode = code;
     this.pushState();
   }
@@ -418,6 +445,9 @@ class MockSocket implements ConsensusSocket {
 
 let socket: ConsensusSocket | null = null;
 export function getSocket(): ConsensusSocket {
-  if (!socket) socket = new MockSocket();
+  if (!socket) {
+    loadRooms();
+    socket = new MockSocket();
+  }
   return socket;
 }
