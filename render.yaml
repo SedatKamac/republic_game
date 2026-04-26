@@ -2,10 +2,12 @@ services:
   - type: web
     name: republic-game
     runtime: node
-    buildCommand: bun install && bun run build
+    buildCommand: bun install && bun run build && echo "--- BUILD COMPLETE ---" && echo "Checking .output:" && ls -R .output || echo ".output not found" && echo "Checking dist:" && ls -R dist || echo "dist not found"
     startCommand: bun run start
     envVars:
       - key: BUN_VERSION
         value: 1.3.4
       - key: NITRO_PRESET
         value: node-server
+      - key: NODE_ENV
+        value: production
