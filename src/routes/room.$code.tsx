@@ -47,12 +47,17 @@ function RoomPage() {
   // Auto-rejoin if user lands here cold (e.g. refresh)
   useEffect(() => {
     if (!ready) return;
-    if (room && room.code === code) return;
-    if (!room) {
-      // Try to join silently — works only if room still exists in mock memory
-      socket.emit("room:join", { code, displayName: "" });
+    // If we're already in this room and our name is set, don't re-join
+    if (room && room.code === code) {
+      const me = room.players.find(p => p.id === playerId);
+      if (me && me.name !== "Player" && me.name !== "") return;
     }
-  }, [ready, room, code, socket]);
+    
+    if (!room || (room && room.code !== code)) {
+      const name = localStorage.getItem("consensus_name") || "";
+      socket.emit("room:join", { code, displayName: name });
+    }
+  }, [ready, room, code, socket, playerId]);
 
   useEffect(() => {
     if (error) {

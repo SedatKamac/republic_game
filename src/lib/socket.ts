@@ -239,7 +239,13 @@ class MockSocket implements ConsensusSocket {
       this.fire("room:error", { code: "ROOM_FULL", message: "Room is full (10 max)." });
       return;
     }
-    if (!room.players.some((p) => p.id === this.playerId)) {
+    const existingPlayer = room.players.find((p) => p.id === this.playerId);
+    if (existingPlayer) {
+      // Just update name if it's currently a placeholder
+      if (payload.displayName && (existingPlayer.name === "Player" || existingPlayer.name === "Host" || existingPlayer.name === "")) {
+        existingPlayer.name = payload.displayName;
+      }
+    } else {
       room.players.push({
         id: this.playerId,
         name: payload.displayName || "Player",
