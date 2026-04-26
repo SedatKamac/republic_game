@@ -13,13 +13,22 @@ export function useSocket(): { socket: ConsensusSocket; playerId: string; ready:
     const pid = getOrCreatePlayerId();
     const name = getDisplayName();
     playerIdRef.current = pid;
-    if (name) {
-      socketRef.current!.connect(pid, name);
-    } else {
-      socketRef.current!.connect(pid, "");
-    }
-    setReady(true);
+    socketRef.current!.connect(pid, name || "");
+    // Give the WebSocket a moment to connect + authenticate before marking ready
+    const checkReady = setInterval(() => {
+      if (socketRef.current!.isConnected()) {
+        setReady(true);
+        clearInterval(checkReady);
+      }
+    }, 100);
+    // Also set ready after a short timeout in case connection is instant
+    const timeout = setTimeout(() => {
+      setReady(true);
+      clearInterval(checkReady);
+    }, 3000);
     return () => {
+      clearInterval(checkReady);
+      clearTimeout(timeout);
       // Keep socket alive across route changes; only disconnect on tab close
     };
   }, []);

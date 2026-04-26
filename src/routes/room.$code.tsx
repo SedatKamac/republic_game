@@ -6,7 +6,7 @@ import { useRoomState } from "@/hooks/useRoomState";
 import { useMyRole } from "@/hooks/useMyRole";
 import { usePhaseTimer } from "@/hooks/usePhaseTimer";
 import { useTrustReveals } from "@/hooks/useTrustReveals";
-import { setLastRoom } from "@/lib/session";
+import { setLastRoom, getDisplayName } from "@/lib/session";
 import { LobbyPhase } from "@/components/phases/LobbyPhase";
 import { RoleRevealPhase } from "@/components/phases/RoleRevealPhase";
 import { DiscussionPhase } from "@/components/phases/DiscussionPhase";
@@ -49,17 +49,12 @@ function RoomPage() {
   // Auto-rejoin if user lands here cold (e.g. refresh)
   useEffect(() => {
     if (!ready) return;
-    // If we're already in this room and our name is set, don't re-join
-    if (room && room.code === code) {
-      const me = room.players.find(p => p.id === playerId);
-      if (me && me.name !== "Player" && me.name !== "") return;
-    }
+    // If we're already in this room, don't re-join
+    if (room && room.code === code) return;
     
-    if (!room || (room && room.code !== code)) {
-      const name = localStorage.getItem("consensus_name") || "";
-      socket.emit("room:join", { code, displayName: name });
-    }
-  }, [ready, room, code, socket, playerId]);
+    const name = getDisplayName();
+    socket.emit("room:join", { code, displayName: name });
+  }, [ready, code, socket]);
 
   useEffect(() => {
     if (error) {

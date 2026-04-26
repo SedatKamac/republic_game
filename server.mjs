@@ -3,7 +3,9 @@ import { createApp, eventHandler, toNodeListener, toWebRequest } from 'h3'
 import { readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { existsSync } from 'node:fs'
+import { createServer } from 'node:http'
 import server from './dist/server/server.js'
+import { attachGameServer } from './game-server.mjs'
 
 const app = createApp()
 const clientDir = join(process.cwd(), 'dist/client')
@@ -55,15 +57,16 @@ app.use(eventHandler(async (event) => {
   }
 }))
 
-console.log('🚀 Starting Republic Game Server (Brute Force Assets)...')
+console.log('🚀 Starting Republic Game Server...')
 
+// Create raw HTTP server so we can attach WebSocket to it
 const nodeListener = toNodeListener(app)
+const httpServer = createServer(nodeListener)
 
-listen(nodeListener, {
-  port: process.env.PORT || 3000
-}).then(() => {
-  console.log(`✅ Server live and serving assets on port ${process.env.PORT || 3000}`)
-}).catch(err => {
-  console.error('❌ Startup failed:', err)
-  process.exit(1)
+// Attach WebSocket game server
+attachGameServer(httpServer)
+
+const port = process.env.PORT || 3000
+httpServer.listen(port, () => {
+  console.log(`✅ Server live on port ${port} (HTTP + WebSocket)`)
 })
