@@ -33,7 +33,7 @@ export const Route = createFileRoute("/")({
 });
 
 function Landing() {
-  const { socket, ready } = useSocket();
+  const { socket, playerId, ready } = useSocket();
   const { room, error } = useRoomState();
   const navigate = useNavigate();
   const [name, setName] = useState("");
@@ -58,7 +58,7 @@ function Landing() {
     const trimmed = name.trim();
     if (!trimmed) return toast.error("Pick a display name first.");
     setDisplayName(trimmed);
-    socket.connect(socket.isConnected() ? "" : "", trimmed); // ensure name updated
+    socket.connect(playerId, trimmed); // ensure name updated
     socket.emit("room:create", { displayName: trimmed, settings: { discussionSeconds: 90 } });
   };
 
@@ -67,6 +67,7 @@ function Landing() {
     if (!trimmed) return toast.error("Pick a display name first.");
     if (code.trim().length < 4) return toast.error("Enter a valid room code.");
     setDisplayName(trimmed);
+    socket.connect(playerId, trimmed);
     socket.emit("room:join", { code: code.trim().toUpperCase(), displayName: trimmed });
   };
 

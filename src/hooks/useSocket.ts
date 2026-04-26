@@ -11,9 +11,13 @@ export function useSocket(): { socket: ConsensusSocket; playerId: string; ready:
 
   useEffect(() => {
     const pid = getOrCreatePlayerId();
-    const name = getDisplayName() || "Player";
+    const name = getDisplayName();
     playerIdRef.current = pid;
-    socketRef.current!.connect(pid, name);
+    if (name) {
+      socketRef.current!.connect(pid, name);
+    } else {
+      socketRef.current!.connect(pid, "");
+    }
     setReady(true);
     return () => {
       // Keep socket alive across route changes; only disconnect on tab close
