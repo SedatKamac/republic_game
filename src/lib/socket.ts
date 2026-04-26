@@ -54,7 +54,12 @@ interface MockRoom {
 const ROOMS = new Map<string, MockRoom>();
 const ROOMS_KEY = "consensus_mock_rooms";
 
+function isBrowser() {
+  return typeof window !== "undefined";
+}
+
 function saveRooms() {
+  if (!isBrowser()) return;
   const roomsObj = Object.fromEntries(
     Array.from(ROOMS.entries()).map(([code, room]) => [
       code,
@@ -65,6 +70,7 @@ function saveRooms() {
 }
 
 function loadRooms() {
+  if (!isBrowser()) return;
   const stored = localStorage.getItem(ROOMS_KEY);
   if (stored) {
     try {
@@ -445,6 +451,15 @@ class MockSocket implements ConsensusSocket {
 
 let socket: ConsensusSocket | null = null;
 export function getSocket(): ConsensusSocket {
+  if (!isBrowser()) {
+    return {
+      connect: () => {},
+      disconnect: () => {},
+      on: () => () => {},
+      emit: () => {},
+      isConnected: () => false,
+    };
+  }
   if (!socket) {
     loadRooms();
     socket = new MockSocket();
