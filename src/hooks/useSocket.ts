@@ -1,0 +1,24 @@
+import { useEffect, useRef, useState } from "react";
+import { getSocket, type ConsensusSocket } from "@/lib/socket";
+import { getOrCreatePlayerId, getDisplayName } from "@/lib/session";
+
+export function useSocket(): { socket: ConsensusSocket; playerId: string; ready: boolean } {
+  const [ready, setReady] = useState(false);
+  const playerIdRef = useRef("");
+  const socketRef = useRef<ConsensusSocket | null>(null);
+
+  if (!socketRef.current) socketRef.current = getSocket();
+
+  useEffect(() => {
+    const pid = getOrCreatePlayerId();
+    const name = getDisplayName() || "Player";
+    playerIdRef.current = pid;
+    socketRef.current!.connect(pid, name);
+    setReady(true);
+    return () => {
+      // Keep socket alive across route changes; only disconnect on tab close
+    };
+  }, []);
+
+  return { socket: socketRef.current!, playerId: playerIdRef.current, ready };
+}
