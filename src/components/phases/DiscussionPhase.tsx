@@ -2,13 +2,18 @@ import { PlayerGrid } from "@/components/room/PlayerGrid";
 import { RoleCard } from "@/components/room/RoleCard";
 import type { MyRolePayload, RoomState } from "@/lib/gameTypes";
 
+import { FastForward } from "lucide-react";
+import { Button } from "@/components/ui/button";
+
 interface DiscussionPhaseProps {
   room: RoomState;
   meId: string;
   myRole: MyRolePayload | null;
+  onSkip?: () => void;
 }
 
-export function DiscussionPhase({ room, meId, myRole }: DiscussionPhaseProps) {
+export function DiscussionPhase({ room, meId, myRole, onSkip }: DiscussionPhaseProps) {
+  const isHost = room.hostId === meId;
   const president = room.players.find((p) => p.id === room.currentRound?.presidentId);
 
   return (
@@ -22,6 +27,16 @@ export function DiscussionPhase({ room, meId, myRole }: DiscussionPhaseProps) {
           <span className="text-primary font-semibold">{president?.name ?? "the President"}</span>{" "}
           will pick the mission team.
         </p>
+        {isHost && (
+          <Button
+            onClick={onSkip}
+            variant="outline"
+            size="sm"
+            className="mt-6 gap-2 border-primary/30 hover:bg-primary/10 text-primary transition-all duration-300"
+          >
+            <FastForward className="h-4 w-4" /> Skip Discussion
+          </Button>
+        )}
       </div>
 
       <div className="grid lg:grid-cols-[1fr_auto] gap-6 items-start">

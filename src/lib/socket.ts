@@ -57,6 +57,7 @@ interface MockRoom {
   loyalistWins: number;
   traitorWins: number;
   timer: ReturnType<typeof setTimeout> | null;
+  onTimerEnd: (() => void) | null;
 }
 
 const ROOMS = new Map<string, MockRoom>();
@@ -174,6 +175,19 @@ class MockSocket implements ConsensusSocket {
       case "trust:reveal": return this.handleTrustReveal(payload);
       case "vote:submit": return this.handleVoteSubmit(payload);
       case "game:reset": return this.handleReset();
+      case "game:skipPhase": return this.handleSkipPhase();
+    }
+  }
+
+  private handleSkipPhase() {
+    const room = this.room;
+    if (!room || room.hostId !== this.playerId) return;
+    if (room.timer && room.onTimerEnd) {
+      clearTimeout(room.timer);
+      const cb = room.onTimerEnd;
+      room.timer = null;
+      room.onTimerEnd = null;
+      cb();
     }
   }
 
@@ -224,6 +238,7 @@ class MockSocket implements ConsensusSocket {
       loyalistWins: 0,
       traitorWins: 0,
       timer: null,
+      onTimerEnd: null,
     };
     ROOMS.set(code, room);
     this.roomCode = code;
@@ -703,13 +718,18 @@ class MockSocket implements ConsensusSocket {
     durationMs: number,
     onEnd: () => void,
   ) {
-    if (room.timer) clearTimeout(room.timer);
+    if (room.timer) {
+      clearTimeout(room.timer);
+      room.timer = null;
+    }
     room.phase = phase;
     room.phaseEndsAt = Date.now() + durationMs;
+    room.onTimerEnd = onEnd;
     this.fire("phase:changed", { phase, phaseEndsAt: room.phaseEndsAt });
     this.pushState();
     room.timer = setTimeout(() => {
       room.timer = null;
+      room.onTimerEnd = null;
       onEnd();
     }, durationMs);
   }

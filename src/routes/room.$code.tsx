@@ -161,7 +161,12 @@ function RoomPage() {
               <RoleRevealPhase role={myRole} remaining={remaining} />
             )}
             {room.phase === "DISCUSSION" && (
-              <DiscussionPhase room={room} meId={playerId} myRole={myRole} />
+              <DiscussionPhase 
+                room={room} 
+                meId={playerId} 
+                myRole={myRole} 
+                onSkip={() => socket.emit("game:skipPhase")}
+              />
             )}
             {room.phase === "TEAM_SELECTION" && (
               <TeamSelectionPhase
