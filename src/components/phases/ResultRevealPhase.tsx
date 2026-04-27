@@ -40,17 +40,17 @@ export function ResultRevealPhase({ room }: ResultRevealPhaseProps) {
             isSuccess ? "text-loyalist" : "text-traitor",
           )}
         >
-          {isSuccess ? "Mission Success" : "Mission Sabotaged"}
+          {isSuccess ? "Operasyon Başarılı" : "Operasyon Sabote Edildi"}
         </h1>
         {tally && (
           <p className="text-sm text-muted-foreground mt-3 font-mono tracking-wide">
-            {tally.supportCount} support · {tally.sabotageCount} sabotage
+            {tally.supportCount} destek · {tally.sabotageCount} sabotaj
           </p>
         )}
         <p className="text-sm text-muted-foreground mt-2 text-balance max-w-md">
           {isSuccess
-            ? "Loyalists secure another win. Traitors may use the next phase to deepen their cover."
-            : "A traitor was on this team. Time to find them."}
+            ? "Loyalistler bir zafer daha kazandı. Hainler bir sonraki aşamada kimliklerini gizlemeye çalışacak."
+            : "Bu ekipte bir hain vardı. Onu bulma vakti geldi."}
         </p>
       </motion.div>
     </div>

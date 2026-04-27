@@ -175,6 +175,8 @@ function resolveTeamVote(room) {
   });
   const approved = approves > rejects;
   room.lastTeamVote = { tallies: { ...room.teamVotes }, approved };
+  room.teamVotes = {}; // Clear votes for next time
+
   if (approved) {
     transition(room, 'SECRET_ACTION', 30000, () => resolveMission(room));
     // Bot auto-actions
@@ -190,6 +192,7 @@ function resolveTeamVote(room) {
     }, 2000);
   } else {
     room.presidentRotationIndex = (room.presidentRotationIndex + 1) % room.players.length;
+    room.currentRound.team = [];
     transition(room, 'TEAM_SELECTION', 4000, () => {
       if (room.players[room.presidentRotationIndex].id.startsWith('bot_')) autoPickTeam(room);
     });
@@ -203,6 +206,7 @@ function resolveMission(room) {
   const sabotages = actions.filter(a => a === 'SABOTAGE').length;
   const success = sabotages === 0;
   if (success) room.loyalistWins++; else room.traitorWins++;
+  room.currentRound.missionResult = success ? 'SUCCESS' : 'SABOTAGE';
   room.missions[room.currentRound.no - 1] = success ? 'SUCCESS' : 'SABOTAGE';
   room.lastMissionTally = { supportCount: actions.length - sabotages, sabotageCount: sabotages };
   room.currentRound.team.forEach(pid => {
